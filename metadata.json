@@ -1,0 +1,7 @@
+{
+  "name": "NexusID - Premium Game & Account Marketplace",
+  "description": "Secure gaming ID and digital account marketplace with instant manual deposit verification, WhatsApp proof submission, wallet system, and real-time admin management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

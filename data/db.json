@@ -1,0 +1,31 @@
+{
+  "users": [
+    {
+      "id": "usr_admin",
+      "username": "arslan481",
+      "email": "hasnainhmad081@gmail.com",
+      "passwordHash": "75c7a05fad97d676c1f201e715d28d9b5db29641e3336d0422592d6abaa262b4",
+      "role": "admin",
+      "walletBalance": 0,
+      "createdAt": "2026-10-05T17:58:55.839Z"
+    }
+  ],
+  "idsStock": [],
+  "purchases": [],
+  "deposits": [],
+  "settings": {
+    "siteName": "FBStore",
+    "pricePerId": 12,
+    "whatsappNumber": "923001234567",
+    "adminUsername": "arslan481",
+    "adminPassword": "Zain786081@&#",
+    "easypaisaTitle": "Muhammad Arslan",
+    "easypaisaNumber": "03064887388",
+    "jazzcashTitle": "Muhammad Arslan",
+    "jazzcashNumber": "03064887388",
+    "accountTitle": "Muhammad Arslan",
+    "accountNumber": "03064887388",
+    "totalBalanceAddedLifetime": 100
+  },
+  "notifications": []
+}
