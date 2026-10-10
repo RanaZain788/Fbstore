@@ -26,7 +26,7 @@ export const UserLoginView: React.FC = () => {
   const { mode, resolvedTheme, setMode } = useTheme();
 
   const [isRegisterMode, setIsRegisterMode] = useState<boolean>(false);
-  
+
   // Login State
   const [loginInput, setLoginInput] = useState('');
   const [loginPass, setLoginPass] = useState('');
@@ -93,22 +93,18 @@ export const UserLoginView: React.FC = () => {
       setErrorMsg('Please fill in all registration fields.');
       return;
     }
-
     if (cleanUsername.length < 3) {
       setErrorMsg('Username must be at least 3 characters.');
       return;
     }
-
     if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
       setErrorMsg('Please enter a valid email address.');
       return;
     }
-
     if (regPass.length < 6) {
       setErrorMsg('Password must be at least 6 characters.');
       return;
     }
-
     if (regPass !== regConfirmPass) {
       setErrorMsg('Passwords do not match. Please re-enter.');
       return;
@@ -127,7 +123,7 @@ export const UserLoginView: React.FC = () => {
 
   const handleOpenWhatsAppForgot = () => {
     const userParam = forgotUsernameInput.trim() || loginInput.trim() || 'My Account';
-    const text = encodeURIComponent(`Assalam-o-Alaikum Admin! I forgot the password for my FBStore account: @${userParam}. Please help me reset it.`);
+    const text = encodeURIComponent(`Hello Admin, I forgot my password for my FBStore account: @${userParam}. Please help me reset it.`);
     const cleanNumber = adminWhatsapp.replace(/\D/g, '');
     window.open(`https://wa.me/${cleanNumber}?text=${text}`, '_blank');
     setShowForgotModal(false);
@@ -149,7 +145,6 @@ export const UserLoginView: React.FC = () => {
           <Sun className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Light</span>
         </button>
-
         <button
           type="button"
           onClick={() => setMode('dark')}
@@ -161,7 +156,6 @@ export const UserLoginView: React.FC = () => {
           <Moon className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Dark</span>
         </button>
-
         <button
           type="button"
           onClick={() => setMode('system')}
@@ -247,7 +241,6 @@ export const UserLoginView: React.FC = () => {
               <span>{errorMsg}</span>
             </div>
           )}
-
           {successMsg && (
             <div className="mb-5 flex items-start gap-2.5 p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-600 dark:text-emerald-300 text-xs">
               <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500 dark:text-emerald-400" />
@@ -465,16 +458,16 @@ export const UserLoginView: React.FC = () => {
 
             <div className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
               <p>
-                Agar aap apna password bhool gaye hain to apna <strong>Username</strong> enter karein aur WhatsApp par Admin se rabta karein.
+                If you forgot your password, please enter your <strong>Username</strong> below and reach out to the Admin on WhatsApp for instant assistance.
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Admin aapka password apne Admin Panel se direct reset kar k aapko instant new password de dega.
+                The Administrator will verify your identity and immediately provide you with a new password.
               </p>
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Aapka Username
+                Your Username
               </label>
               <input
                 type="text"
@@ -495,7 +488,6 @@ export const UserLoginView: React.FC = () => {
                 <span>Contact Admin on WhatsApp</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </button>
-
               <button
                 type="button"
                 onClick={() => setShowForgotModal(false)}

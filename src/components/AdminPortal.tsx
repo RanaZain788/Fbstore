@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ShieldCheck, 
   Layers, 
@@ -42,12 +42,28 @@ import {
   Play,
   Film,
   CheckCheck,
-  FileText
+  FileText,
+  BadgeCheck,
+  Flame,
+  MessageSquarePlus,
+  HelpCircle,
+  Filter,
+  Star
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
-import { DepositRequest, FbIdStockItem, StoreSettings, Announcement, AnnouncementType, MarqueeAnnouncement, AdminMessage } from '../types';
+import { 
+  DepositRequest, 
+  FbIdStockItem, 
+  StoreSettings, 
+  Announcement, 
+  AnnouncementType, 
+  MarqueeAnnouncement, 
+  AdminMessage,
+  CustomerFeedback,
+  AccountCategory
+} from '../types';
 import { firebaseService } from '../services/firebaseService';
 
 interface UserStatsItem {
@@ -66,21 +82,53 @@ export const AdminPortal: React.FC = () => {
   const { user, token, logout } = useAuth();
   const { showToast } = useNotifications();
 
-  // Admin login credentials - COMPLETELY EMPTY by default for security
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [isLoggedInAsAdmin, setIsLoggedInAsAdmin] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'deposits' | 'users' | 'stock' | 'announcements' | 'messages' | 'tutorial' | 'backup' | 'settings'>('deposits');
-  
+  const [activeTab, setActiveTab] = useState<'deposits' | 'users' | 'stock' | 'feedback' | 'announcements' | 'messages' | 'backup' | 'settings'>('deposits');
+
+  // Database Backup & Restore State
+  const [isExportingBackup, setIsExportingBackup] = useState(false);
+  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
+  const [backupRestorePreview, setBackupRestorePreview] = useState<{
+    fileName: string;
+    usersCount: number;
+    stockCount: number;
+    purchasesCount: number;
+    depositsCount: number;
+    announcementsCount: number;
+    feedbacksCount: number;
+  } | null>(null);
+  const [pendingRestoreData, setPendingRestoreData] = useState<any>(null);
+
   // Data
   const [deposits, setDeposits] = useState<DepositRequest[]>([]);
   const [usersList, setUsersList] = useState<UserStatsItem[]>([]);
   const [stock, setStock] = useState<FbIdStockItem[]>([]);
+  const [feedbacks, setFeedbacks] = useState<CustomerFeedback[]>([]);
   const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Stock addition
+  const [stockAddCategory, setStockAddCategory] = useState<AccountCategory>('simple');
+  const [stockAddMode, setStockAddMode] = useState<'bulk' | 'individual'>('bulk');
+  const [singleUid, setSingleUid] = useState('');
+  const [singlePassword, setSinglePassword] = useState('');
+  const [singleCookie, setSingleCookie] = useState('');
+  const [pasteStockText, setPasteStockText] = useState('');
+  const [isAddingStock, setIsAddingStock] = useState(false);
+  const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
+
+  // Pricing & Box Configuration State
+  const [priceSimpleInput, setPriceSimpleInput] = useState<number>(12);
+  const [priceVerifiedInput, setPriceVerifiedInput] = useState<number>(25);
+
+  // Stock Filter by Category & Status
+  const [stockFilterCategory, setStockFilterCategory] = useState<'all' | 'simple' | 'verified'>('all');
+  const [stockFilterStatus, setStockFilterStatus] = useState<'all' | 'available' | 'sold'>('all');
 
   // Announcements & Marquee State
   const [announcementsList, setAnnouncementsList] = useState<Announcement[]>([]);
@@ -96,36 +144,27 @@ export const AdminPortal: React.FC = () => {
   const [annActive, setAnnActive] = useState(true);
   const [isSavingAnnouncement, setIsSavingAnnouncement] = useState(false);
 
-  // Marquee Ticker Settings State
+  // Marquee State
   const [marqueeSettings, setMarqueeSettings] = useState<MarqueeAnnouncement>({
     enabled: true,
-    text: '⚡ Welcome to FBStore! Instant Facebook Accounts Delivery • 24/7 JazzCash & EasyPaisa Deposit • Guaranteed Fresh UIDs',
+    text: '🚀 Welcome to FBStore! Instant Facebook Accounts Delivery | 24/7 JazzCash & EasyPaisa Deposit | Guaranteed Fresh UIDs',
     speed: 'normal',
     showBadge: true,
     targetType: 'all',
   });
   const [isSavingMarquee, setIsSavingMarquee] = useState(false);
 
-  // Welcome New User Greeting Settings State
-  const [welcomeSettings, setWelcomeSettings] = useState<{
-    enabled: boolean;
-    title: string;
-    message: string;
-  }>({
-    enabled: true,
-    title: 'Welcome to FBStore, {username}! 🎉',
-    message: 'Assalam-o-Alaikum {username}! Welcome to FBStore.\n\nYour account is now ready with Rs. 0 wallet balance. You can add balance via JazzCash / EasyPaisa and purchase verified Facebook accounts with instant delivery.\n\nThank you for choosing us!',
-  });
-  const [isSavingWelcome, setIsSavingWelcome] = useState(false);
-
   // Direct Admin Messages State
   const [messageModalOpen, setMessageModalOpen] = useState(false);
   const [messageTargetUser, setMessageTargetUser] = useState<UserStatsItem | null>(null);
+  const [msgTargetType, setMsgTargetType] = useState<'all' | 'user'>('user');
+  const [msgSelectedUserId, setMsgSelectedUserId] = useState<string>('');
   const [msgTitle, setMsgTitle] = useState('');
   const [msgBody, setMsgBody] = useState('');
   const [msgPriority, setMsgPriority] = useState<'normal' | 'high' | 'urgent'>('normal');
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [sentMessagesList, setSentMessagesList] = useState<AdminMessage[]>([]);
+  const [msgFilterSearch, setMsgFilterSearch] = useState('');
 
   // Search User
   const [userSearchQuery, setUserSearchQuery] = useState('');
@@ -143,99 +182,25 @@ export const AdminPortal: React.FC = () => {
   const [totalBalanceInput, setTotalBalanceInput] = useState<number>(100);
   const [isAdjustingTotal, setIsAdjustingTotal] = useState(false);
 
-  // Stock addition
-  const [stockAddMode, setStockAddMode] = useState<'individual' | 'builder' | 'bulk'>('individual');
-  const [singleUid, setSingleUid] = useState('');
-  const [singlePassword, setSinglePassword] = useState('');
-  const [singleCookie, setSingleCookie] = useState('');
-  const [pasteStockText, setPasteStockText] = useState('');
-  const [bulkDelimiter, setBulkDelimiter] = useState<':' | '|' | '----' | '\t' | ','>(':');
-  const [builderRows, setBuilderRows] = useState<Array<{ uid: string; password: string; cookie: string }>>([
-    { uid: '', password: '', cookie: '' },
-    { uid: '', password: '', cookie: '' },
-    { uid: '', password: '', cookie: '' }
-  ]);
-  const [isAddingStock, setIsAddingStock] = useState(false);
-  const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
-
-  // Tutorial Video ("How to login with cookies")
-  const [tutorialTitle, setTutorialTitle] = useState('How to Login Facebook ID with Cookie (Video Tutorial) 🍪');
-  const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
-  const [tutorialInstructions, setTutorialInstructions] = useState(
-    '1. Install "Cookie-Editor" extension in your Chrome, Brave or Edge browser.\n2. Open https://www.facebook.com in a new tab.\n3. Click the "Copy Cookie" button for your purchased account in FBStore.\n4. Click the Cookie-Editor extension icon on Facebook, click "Import", paste the cookie, and click Import.\n5. Refresh the Facebook page — you will be instantly logged in without needing a password!'
-  );
-  const [tutorialEnabled, setTutorialEnabled] = useState(true);
-  const [isSavingTutorial, setIsSavingTutorial] = useState(false);
-  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
-
-  // Database Backup & Firestore Sync Manager
-  const [backupRawInput, setBackupRawInput] = useState('');
-  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
-  const [backupStatsResult, setBackupStatsResult] = useState<any>(null);
-  const [priceInput, setPriceInput] = useState<number>(() => {
-    if (typeof window !== 'undefined') {
-      const cached = localStorage.getItem('fbstore_cached_price');
-      if (cached && Number(cached) > 0) return Number(cached);
-    }
-    return 12;
-  });
-
-  // Lifetime Added Balance & Stock Filters
   const [totalLifetimeBalanceAdded, setTotalLifetimeBalanceAdded] = useState<number>(0);
-  const [stockFilter, setStockFilter] = useState<'all' | 'available' | 'sold'>('all');
-
-  // Screenshot Zoom Modal
   const [previewScreenshot, setPreviewScreenshot] = useState<string | null>(null);
-
-  // Reject modal
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Change User Password Modal
+  // Password Reveal & Update
   const [passwordModalUser, setPasswordModalUser] = useState<UserStatsItem | null>(null);
   const [adminNewPasswordInput, setAdminNewPasswordInput] = useState('');
   const [isUpdatingUserPassword, setIsUpdatingUserPassword] = useState(false);
   const [showModalPassword, setShowModalPassword] = useState(false);
-
-  // Reveal password in user list
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
 
-  const toggleRevealPassword = (userId: string) => {
-    setRevealedPasswords(prev => ({ ...prev, [userId]: !prev[userId] }));
-  };
-
-  const handleCopyPassword = (pass: string, username: string) => {
-    if (!pass) {
-      showToast('Notice', `Password for @${username} is encrypted/not saved yet. You can set a new one anytime.`, 'info');
-      return;
-    }
-    navigator.clipboard.writeText(pass);
-    showToast('Copied', `Password for @${username} copied to clipboard!`, 'success');
-  };
-
-  // Delete User Confirmation Modal
   const [deleteUserModal, setDeleteUserModal] = useState<UserStatsItem | null>(null);
   const [isDeletingUser, setIsDeletingUser] = useState(false);
-
-  // Deposit Three-Dots Action Menu
   const [activeMenuDepositId, setActiveMenuDepositId] = useState<string | null>(null);
-
-  // Close Three-Dots menu on outside click
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest('.deposit-action-menu')) {
-        setActiveMenuDepositId(null);
-      }
-    };
-    window.addEventListener('click', handleOutsideClick);
-    return () => window.removeEventListener('click', handleOutsideClick);
-  }, []);
-
-  // Copy rule
   const [copiedRules, setCopiedRules] = useState(false);
 
-  // Settings form (JazzCash, EasyPaisa, WhatsApp & SMTP)
+  // Settings Form
   const [settingsForm, setSettingsForm] = useState({
     adminUsername: 'arslan481',
     adminPassword: 'Zain786081@&#',
@@ -246,11 +211,268 @@ export const AdminPortal: React.FC = () => {
     easypaisaNumber: '03064887388',
     jazzcashTitle: 'Muhammad Arslan',
     jazzcashNumber: '03064887388',
+    pricePerIdSimple: 12,
+    pricePerIdVerified: 25,
+    simpleAccountsEnabled: true,
+    verifiedAccountsEnabled: true,
+    simpleOfferEnabled: false,
+    simpleOfferMessage: 'Special Limited Discount Available!',
+    verifiedOfferEnabled: false,
+    verifiedOfferMessage: 'Premium VIP Verified Accounts Sale!',
     smtpHost: 'smtp.gmail.com',
     smtpPort: 587,
     smtpUser: '',
     smtpPass: '',
   });
+
+  // Robust Clipboard Copy Helper with ExecCommand fallback for iframes
+  const copyTextToClipboard = async (text: string): Promise<boolean> => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) {}
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-999999px';
+      textarea.style.top = '-999999px';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return successful;
+    } catch (err) {
+      return false;
+    }
+  };
+
+  // Smart Live Parser for Bulk Textarea
+  const parsedBulkPreview = useMemo(() => {
+    const rawJoined = pasteStockText.trim();
+    if (!rawJoined) return [];
+
+    const result: Array<{ uid: string; password: string; cookie?: string; hasCookie: boolean; cookiePreview?: string }> = [];
+
+    const addAccount = (uid: string, password: string, cookie?: string) => {
+      const cleanUid = uid.replace(/^["']|["']$/g, '').trim();
+      const cleanPass = password.replace(/^["']|["']$/g, '').trim();
+      const cleanCookie = cookie ? cookie.replace(/^["']|["']$/g, '').trim() : undefined;
+      if (!cleanUid) return;
+
+      result.push({
+        uid: cleanUid,
+        password: cleanPass || '(none)',
+        cookie: cleanCookie,
+        hasCookie: Boolean(cleanCookie),
+        cookiePreview: cleanCookie ? (cleanCookie.length > 30 ? cleanCookie.slice(0, 30) + '...' : cleanCookie) : undefined
+      });
+    };
+
+    // 1. JSON Array format: [{"uid": "...", "password": "...", "cookie": "..."}]
+    if (rawJoined.startsWith('[') && rawJoined.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(rawJoined);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item && typeof item === 'object') {
+              const u = String(item.uid || item.id || item.username || '').trim();
+              const p = String(item.password || item.pass || item.pwd || '').trim();
+              const c = item.cookie || item.cookies || item.token ? String(item.cookie || item.cookies || item.token).trim() : undefined;
+              if (u) addAccount(u, p, c);
+            }
+          }
+          if (result.length > 0) return result;
+        }
+      } catch (e) {}
+    }
+
+    // 2. Multi-line Block Format (UID:\nPASS:\nCOOKIE: or separated by blank lines / dashes)
+    const hasBlockLabels = /(?:^|\n)\s*(?:uid|id|user)\s*:/i.test(rawJoined) && 
+                           /(?:^|\n)\s*(?:pass|password|pwd)\s*:/i.test(rawJoined);
+
+    if (hasBlockLabels) {
+      const blocks = rawJoined.split(/\n\s*(?:\n|---|===|___|\*\*\*)\s*\n?/);
+      let parsedBlocks = 0;
+
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+        let bUid = '';
+        let bPass = '';
+        let bCookie = '';
+
+        const blockLines = block.split('\n');
+        for (const bl of blockLines) {
+          const trimmedBl = bl.trim();
+          if (!trimmedBl || trimmedBl.startsWith('#')) continue;
+
+          const uidMatch = trimmedBl.match(/^(?:uid|id|username|user)\s*[:=]\s*(.+)$/i);
+          if (uidMatch) {
+            bUid = uidMatch[1].trim();
+            continue;
+          }
+
+          const passMatch = trimmedBl.match(/^(?:password|pass|pwd)\s*[:=]\s*(.+)$/i);
+          if (passMatch) {
+            bPass = passMatch[1].trim();
+            continue;
+          }
+
+          const cookieMatch = trimmedBl.match(/^(?:cookie|cookies|token|session)\s*[:=]\s*(.+)$/i);
+          if (cookieMatch) {
+            bCookie = cookieMatch[1].trim();
+            continue;
+          }
+
+          const twoFaMatch = trimmedBl.match(/^(?:2fa|twofa|code|secret)\s*[:=]\s*(.+)$/i);
+          if (twoFaMatch) {
+            bPass = bPass ? `${bPass} [2FA: ${twoFaMatch[1].trim()}]` : `[2FA: ${twoFaMatch[1].trim()}]`;
+            continue;
+          }
+
+          if (/c_user=|xs=|datr=|sb=/.test(trimmedBl)) {
+            bCookie = bCookie ? `${bCookie}; ${trimmedBl}` : trimmedBl;
+          }
+        }
+
+        if (bUid) {
+          addAccount(bUid, bPass, bCookie || undefined);
+          parsedBlocks++;
+        }
+      }
+
+      if (parsedBlocks > 0) return result;
+    }
+
+    // 3. Line by Line parser
+    const lines = pasteStockText.split('\n');
+    for (const raw of lines) {
+      let trimmed = raw.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+
+      const lower = trimmed.toLowerCase();
+      if (lower.startsWith('uid|password') || lower.startsWith('uid:password') || lower === 'uid:pass:cookie' || lower === 'uid|pass|cookie') {
+        continue;
+      }
+
+      let uid = '';
+      let password = '';
+      let cookie: string | undefined = undefined;
+
+      // Labels inside single line: "UID: 1000 | PASS: abc | Cookie: c_user=..."
+      if (/uid\s*[:=]/i.test(trimmed) && /pass/i.test(trimmed)) {
+        const uM = trimmed.match(/uid\s*[:=]\s*([^|:;\n\s]+)/i);
+        const pM = trimmed.match(/pass(?:word)?\s*[:=]\s*([^|;\n]+)/i);
+        const cM = trimmed.match(/cookie[s]?\s*[:=]\s*(.+)$/i);
+        if (uM && uM[1]) uid = uM[1].trim();
+        if (pM && pM[1]) password = pM[1].trim();
+        if (cM && cM[1]) cookie = cM[1].trim();
+
+        if (uid) {
+          addAccount(uid, password, cookie);
+          continue;
+        }
+      }
+
+      trimmed = trimmed.replace(/^(?:uid|id|user)\s*[:=]\s*/i, '');
+
+      let sep = '';
+      if (trimmed.includes('----') || trimmed.includes('---')) {
+        sep = trimmed.includes('----') ? '----' : '---';
+      } else if (trimmed.includes('\t')) {
+        sep = '\t';
+      } else if (trimmed.includes('|')) {
+        sep = '|';
+      }
+
+      if (sep) {
+        const parts = trimmed.split(sep).map(p => p.trim());
+        uid = parts[0] || '';
+        password = parts[1] || '';
+
+        if (parts.length === 3) {
+          cookie = parts[2] || undefined;
+        } else if (parts.length >= 4) {
+          const part3IsCookie = /c_user=|xs=|datr=|sb=|\[|\{/.test(parts[2]);
+          const part4IsCookie = /c_user=|xs=|datr=|sb=|\[|\{/.test(parts[3]);
+
+          if (part4IsCookie) {
+            password = `${parts[1]} [2FA: ${parts[2]}]`;
+            cookie = parts.slice(3).join(sep).trim() || undefined;
+          } else if (part3IsCookie) {
+            cookie = parts.slice(2).join(sep).trim() || undefined;
+          } else {
+            cookie = parts.slice(2).join(sep).trim() || undefined;
+          }
+        }
+      } else if (trimmed.includes(':')) {
+        const firstColon = trimmed.indexOf(':');
+        uid = trimmed.slice(0, firstColon).trim();
+        const remainder = trimmed.slice(firstColon + 1).trim();
+
+        const cookieIndex = remainder.search(/c_user=|xs=|datr=|sb=|\[\s*\{/i);
+        if (cookieIndex > 0) {
+          const beforeCookie = remainder.slice(0, cookieIndex).trim().replace(/[:|;\s]+$/, '');
+          cookie = remainder.slice(cookieIndex).trim();
+
+          const subColon = beforeCookie.indexOf(':');
+          if (subColon !== -1) {
+            const p = beforeCookie.slice(0, subColon).trim();
+            const twoFa = beforeCookie.slice(subColon + 1).trim();
+            password = twoFa ? `${p} [2FA: ${twoFa}]` : p;
+          } else {
+            password = beforeCookie;
+          }
+        } else {
+          const secondColon = remainder.indexOf(':');
+          if (secondColon !== -1) {
+            password = remainder.slice(0, secondColon).trim();
+            cookie = remainder.slice(secondColon + 1).trim() || undefined;
+          } else {
+            password = remainder;
+          }
+        }
+      } else if (trimmed.includes(',')) {
+        const parts = trimmed.split(',').map(p => p.trim());
+        uid = parts[0] || '';
+        password = parts[1] || '';
+        if (parts.length >= 3) {
+          cookie = parts.slice(2).join(',').trim() || undefined;
+        }
+      } else {
+        const parts = trimmed.split(/\s+/);
+        if (parts.length >= 2) {
+          uid = parts[0].trim();
+          password = parts[1].trim();
+          if (parts.length >= 3) {
+            cookie = parts.slice(2).join(' ').trim() || undefined;
+          }
+        } else {
+          uid = trimmed;
+          password = '';
+        }
+      }
+
+      if (uid) {
+        addAccount(uid, password, cookie);
+      }
+    }
+
+    return result;
+  }, [pasteStockText]);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.deposit-action-menu')) {
+        setActiveMenuDepositId(null);
+      }
+    };
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, []);
 
   const checkAdminAuth = async () => {
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
@@ -279,7 +501,7 @@ export const AdminPortal: React.FC = () => {
 
     try {
       setLoading(true);
-      const [resDep, resStock, resUsers, resOverview, resAnn, resMarq, resMsg, resWelcome] = await Promise.all([
+      const [resDep, resStock, resUsers, resOverview, resAnn, resMarq, resMsg, resFeedbacks] = await Promise.all([
         fetch('/api/deposits', { headers: { Authorization: `Bearer ${currentToken}` } }),
         fetch('/api/admin/stock', { headers: { Authorization: `Bearer ${currentToken}` } }),
         fetch('/api/admin/users', { headers: { Authorization: `Bearer ${currentToken}` } }),
@@ -287,7 +509,7 @@ export const AdminPortal: React.FC = () => {
         fetch('/api/admin/announcements', { headers: { Authorization: `Bearer ${currentToken}` } }),
         fetch('/api/marquee'),
         fetch('/api/admin/messages', { headers: { Authorization: `Bearer ${currentToken}` } }),
-        fetch('/api/admin/welcome-settings', { headers: { Authorization: `Bearer ${currentToken}` } })
+        fetch('/api/admin/feedbacks', { headers: { Authorization: `Bearer ${currentToken}` } })
       ]);
 
       if (resDep.ok) {
@@ -314,61 +536,24 @@ export const AdminPortal: React.FC = () => {
         const d = await resMsg.json();
         setSentMessagesList(d.messages || []);
       }
-      if (resWelcome && resWelcome.ok) {
-        const d = await resWelcome.json();
-        if (d.welcomeConfig) setWelcomeSettings(d.welcomeConfig);
+      if (resFeedbacks.ok) {
+        const d = await resFeedbacks.json();
+        setFeedbacks(d.feedbacks || []);
       }
 
-      // Direct Firestore Users Recovery (Restores any users registered in Firebase Auth & Firestore)
-      try {
-        const fsUsers = await firebaseService.getUsersFirestore();
-        if (fsUsers && fsUsers.length > 0) {
-          setUsersList(prev => {
-            const map = new Map<string, UserStatsItem>();
-            prev.forEach(u => map.set(u.id, u));
-            fsUsers.forEach(fsu => {
-              if (!map.has(fsu.id)) {
-                map.set(fsu.id, {
-                  id: fsu.id,
-                  username: fsu.username,
-                  email: fsu.email,
-                  plainPassword: fsu.plainPassword,
-                  walletBalance: fsu.walletBalance || 0,
-                  createdAt: fsu.createdAt,
-                  ordersCount: 0,
-                  totalAccountsBought: 0,
-                  totalSpent: 0
-                });
-              }
-            });
-            return Array.from(map.values());
-          });
-
-          fetch('/api/admin/sync-firestore-users', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${currentToken}`
-            },
-            body: JSON.stringify({ users: fsUsers })
-          }).catch(() => {});
-        }
-      } catch (err) {}
       if (resOverview.ok) {
         const d = await resOverview.json();
         if (d.totalBalanceAddedLifetime !== undefined) {
           setTotalLifetimeBalanceAdded(d.totalBalanceAddedLifetime);
-        } else if (d.settings?.totalBalanceAddedLifetime !== undefined) {
-          setTotalLifetimeBalanceAdded(d.settings.totalBalanceAddedLifetime);
         }
         if (d.settings) {
           setStoreSettings(d.settings);
-          if (typeof d.settings.pricePerId === 'number') {
-            setPriceInput(d.settings.pricePerId);
-            localStorage.setItem('fbstore_cached_price', String(d.settings.pricePerId));
-          }
+          setPriceSimpleInput(d.settings.pricePerIdSimple || 12);
+          setPriceVerifiedInput(d.settings.pricePerIdVerified || 25);
+
           const pTitle = d.settings.accountTitle || d.settings.jazzcashTitle || d.settings.easypaisaTitle || 'Muhammad Arslan';
           const pNumber = d.settings.accountNumber || d.settings.jazzcashNumber || d.settings.easypaisaNumber || '03064887388';
+
           setSettingsForm({
             adminUsername: d.settings.adminUsername || 'arslan481',
             adminPassword: d.settings.adminPassword || 'Zain786081@&#',
@@ -379,10 +564,18 @@ export const AdminPortal: React.FC = () => {
             easypaisaNumber: pNumber,
             jazzcashTitle: pTitle,
             jazzcashNumber: pNumber,
-            smtpHost: d.settings.smtp?.host || d.settings.smtpHost || 'smtp.gmail.com',
-            smtpPort: d.settings.smtp?.port || d.settings.smtpPort || 587,
-            smtpUser: d.settings.smtp?.user || d.settings.smtpUser || '',
-            smtpPass: d.settings.smtp?.pass || d.settings.smtpPass || '',
+            pricePerIdSimple: d.settings.pricePerIdSimple || 12,
+            pricePerIdVerified: d.settings.pricePerIdVerified || 25,
+            simpleAccountsEnabled: d.settings.simpleAccountsEnabled !== false,
+            verifiedAccountsEnabled: d.settings.verifiedAccountsEnabled !== false,
+            simpleOfferEnabled: Boolean(d.settings.simpleOfferEnabled),
+            simpleOfferMessage: d.settings.simpleOfferMessage || 'Special Limited Discount Available!',
+            verifiedOfferEnabled: Boolean(d.settings.verifiedOfferEnabled),
+            verifiedOfferMessage: d.settings.verifiedOfferMessage || 'Premium VIP Verified Accounts Sale!',
+            smtpHost: d.settings.smtp?.host || 'smtp.gmail.com',
+            smtpPort: d.settings.smtp?.port || 587,
+            smtpUser: d.settings.smtp?.user || '',
+            smtpPass: d.settings.smtp?.pass || '',
           });
         }
       }
@@ -393,132 +586,39 @@ export const AdminPortal: React.FC = () => {
     }
   };
 
-  // Real-time synchronization for Admin Portal (Zero Refresh Needed)
+  // Real-time synchronization for Admin Portal
   useEffect(() => {
     if (!isLoggedInAsAdmin) return;
-
     let eventSource: EventSource | null = null;
     try {
       eventSource = new EventSource('/api/events?userId=admin');
-
-      // 1. New deposit request created live
+      
       eventSource.addEventListener('deposit_created', (e) => {
         try {
           const d = JSON.parse(e.data);
           if (d.deposit) {
-            setDeposits(prev => {
-              if (prev.some(item => item.id === d.deposit.id)) return prev;
-              return [d.deposit, ...prev];
-            });
+            setDeposits(prev => [d.deposit, ...prev]);
             confetti({ particleCount: 30, spread: 60, origin: { y: 0.2 } });
             showToast('New Deposit Received', `Rs. ${d.deposit.amount} PKR from @${d.deposit.username}`, 'info');
           }
         } catch (err) {}
       });
 
-      // 2. Deposit status changed live
-      eventSource.addEventListener('deposit_status_updated', (e) => {
+      eventSource.addEventListener('stock_updated', () => fetchAdminData());
+      eventSource.addEventListener('wallet_updated', () => fetchAdminData());
+      eventSource.addEventListener('feedback_received', (e) => {
         try {
           const d = JSON.parse(e.data);
-          if (d.deposit) {
-            setDeposits(prev => prev.map(item => item.id === d.deposit.id ? { ...item, ...d.deposit } : item));
+          if (d.feedback) {
+            setFeedbacks(prev => [d.feedback, ...prev]);
+            showToast('New Customer Feedback', d.feedback.subject || 'Feedback received', 'info');
           }
         } catch (err) {}
-      });
-
-      eventSource.addEventListener('deposit_approved', (e) => {
-        try {
-          const d = JSON.parse(e.data);
-          if (d.deposit) {
-            setDeposits(prev => prev.map(item => item.id === d.deposit.id ? { ...item, status: 'approved' } : item));
-          }
-          fetchAdminData();
-        } catch (err) {}
-      });
-
-      eventSource.addEventListener('deposit_rejected', (e) => {
-        try {
-          const d = JSON.parse(e.data);
-          if (d.deposit) {
-            setDeposits(prev => prev.map(item => item.id === d.deposit.id ? { ...item, status: 'rejected' } : item));
-          }
-        } catch (err) {}
-      });
-
-      eventSource.addEventListener('deposit_deleted', (e) => {
-        try {
-          const d = JSON.parse(e.data);
-          if (d.depositId) {
-            setDeposits(prev => prev.filter(item => item.id !== d.depositId));
-          }
-        } catch (err) {}
-      });
-
-      // 3. Stock list updated live
-      eventSource.addEventListener('stock_updated', () => {
-        fetchAdminData();
-      });
-
-      // 4. Wallet balance stats updated live
-      eventSource.addEventListener('wallet_updated', () => {
-        fetchAdminData();
-      });
-
-      // 5. Announcements updated live
-      eventSource.addEventListener('announcements_updated', () => {
-        fetchAdminData();
-      });
-
-      // 6. Marquee ticker updated live
-      eventSource.addEventListener('marquee_updated', () => {
-        fetchAdminData();
-      });
-
-      // 7. Users updated live
-      eventSource.addEventListener('users_updated', () => {
-        fetchAdminData();
       });
     } catch (err) {}
 
-    // Firestore real-time snapshot listeners for Admin
-    const unsubUsers = firebaseService.subscribeToUsers((fsUsers) => {
-      if (fsUsers && fsUsers.length > 0) {
-        setUsersList(prev => {
-          const map = new Map<string, UserStatsItem>();
-          prev.forEach(u => map.set(u.id, u));
-          fsUsers.forEach(fsu => {
-            if (!map.has(fsu.id)) {
-              map.set(fsu.id, {
-                id: fsu.id,
-                username: fsu.username,
-                email: fsu.email,
-                plainPassword: fsu.plainPassword,
-                walletBalance: fsu.walletBalance || 0,
-                createdAt: fsu.createdAt,
-                ordersCount: 0,
-                totalAccountsBought: 0,
-                totalSpent: 0
-              });
-            }
-          });
-          return Array.from(map.values());
-        });
-      }
-    });
-
-    const unsubAnn = firebaseService.subscribeToAnnouncements((annList) => {
-      if (annList) setAnnouncementsList(annList);
-    });
-
-    const unsubMarq = firebaseService.subscribeToMarquee((marq) => {
-      if (marq) setMarqueeSettings(marq);
-    });
-
     return () => {
       eventSource?.close();
-      unsubUsers();
-      unsubAnn();
-      unsubMarq();
     };
   }, [isLoggedInAsAdmin]);
 
@@ -532,7 +632,6 @@ export const AdminPortal: React.FC = () => {
     }
 
     setIsLoggingIn(true);
-
     try {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
@@ -542,7 +641,6 @@ export const AdminPortal: React.FC = () => {
           password: adminPassword
         })
       });
-
       const data = await res.json();
       if (!res.ok) {
         setLoginError(data.error || 'Invalid admin credentials.');
@@ -561,7 +659,7 @@ export const AdminPortal: React.FC = () => {
     }
   };
 
-  // 1. Direct User Wallet Adjustment (when user sends screenshot on WhatsApp)
+  // 1. Direct User Wallet Adjustment
   const handleUpdateUserBalance = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!balanceModalUser) return;
@@ -587,7 +685,6 @@ export const AdminPortal: React.FC = () => {
         },
         body: JSON.stringify(payload)
       });
-
       const data = await res.json();
       if (!res.ok) {
         showToast('Update Failed', data.error || 'Could not update user balance.', 'error');
@@ -595,21 +692,17 @@ export const AdminPortal: React.FC = () => {
         return;
       }
 
-      // Mirror to Firestore
       try {
         const finalBal = data.user?.walletBalance ?? (
           adjustMode === 'add' 
             ? balanceModalUser.walletBalance + adjustAmount 
-            : adjustMode === 'deduct' 
-              ? Math.max(0, balanceModalUser.walletBalance - adjustAmount) 
+            : adjustMode === 'deduct'
+              ? Math.max(0, balanceModalUser.walletBalance - adjustAmount)
               : adjustAmount
         );
         await firebaseService.setUserBalanceDirect(balanceModalUser.id, finalBal);
-      } catch (fsErr) {
-        console.warn('Firestore user balance notice:', fsErr);
-      }
+      } catch (fsErr) {}
 
-      // Visual confetti if adding
       if (adjustMode === 'add') {
         try {
           confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
@@ -638,7 +731,6 @@ export const AdminPortal: React.FC = () => {
         method: 'PUT',
         headers: { Authorization: `Bearer ${currentToken}` }
       });
-
       const data = await res.json();
       if (!res.ok) {
         showToast('Approval Failed', data.error || 'Could not approve deposit.', 'error');
@@ -646,14 +738,10 @@ export const AdminPortal: React.FC = () => {
         return;
       }
 
-      // Mirror to Firestore
       try {
         await firebaseService.approveDeposit(dep.id, dep.userId, dep.amount);
-      } catch (fsErr) {
-        console.warn('Firestore approve notice:', fsErr);
-      }
+      } catch (fsErr) {}
 
-      // Visual confetti
       try {
         confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
       } catch (err) {}
@@ -683,13 +771,11 @@ export const AdminPortal: React.FC = () => {
         },
         body: JSON.stringify({ reason: rejectReason || 'Transaction could not be verified.' })
       });
-
       if (!res.ok) {
         showToast('Reject Failed', 'Could not reject request.', 'error');
         setIsProcessing(false);
         return;
       }
-
       showToast('Request Rejected', 'Deposit request was rejected.', 'info');
       setRejectId(null);
       setRejectReason('');
@@ -701,7 +787,7 @@ export const AdminPortal: React.FC = () => {
     }
   };
 
-  // 3b. Change Deposit Status (pending <-> approved <-> rejected) with automatic balance sync
+  // 3b. Change Deposit Status
   const handleSetDepositStatus = async (depositId: string, newStatus: 'pending' | 'approved' | 'rejected', reason?: string) => {
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
     if (!currentToken) return;
@@ -716,13 +802,11 @@ export const AdminPortal: React.FC = () => {
         },
         body: JSON.stringify({ status: newStatus, reason })
       });
-
       const data = await res.json();
       if (!res.ok) {
         showToast('Error', data.error || 'Failed to update deposit status.', 'error');
         return;
       }
-
       setDeposits(prev => prev.map(d => d.id === depositId ? { ...d, status: newStatus, rejectionReason: reason || d.rejectionReason } : d));
       setActiveMenuDepositId(null);
 
@@ -734,7 +818,6 @@ export const AdminPortal: React.FC = () => {
       } else {
         showToast('Status: Pending', 'Deposit moved back to pending queue.', 'info');
       }
-
       fetchAdminData();
     } catch (err: any) {
       showToast('Error', err.message || 'Network error', 'error');
@@ -743,28 +826,36 @@ export const AdminPortal: React.FC = () => {
     }
   };
 
-  // 4. Bulk Add Stock (UID:Password)
+  // 4. Bulk Add Stock with Smart Cookie Parsing & Category
   const handleAddStock = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pasteStockText.trim()) {
-      showToast('Required', 'Please paste at least one UID:Password line.', 'error');
+    if (!pasteStockText.trim() && parsedBulkPreview.length === 0) {
+      showToast('Required', 'Please paste at least one line of accounts or upload a file.', 'error');
       return;
     }
-
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
     if (!currentToken) return;
 
     setIsAddingStock(true);
     try {
+      const accountsPayload = parsedBulkPreview.map(p => ({
+        uid: p.uid,
+        password: p.password,
+        cookie: p.cookie
+      }));
+
       const res = await fetch('/api/admin/stock', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${currentToken}`
         },
-        body: JSON.stringify({ text: pasteStockText })
+        body: JSON.stringify({ 
+          text: pasteStockText,
+          accounts: accountsPayload.length > 0 ? accountsPayload : undefined,
+          category: stockAddCategory
+        })
       });
-
       const data = await res.json();
       if (!res.ok) {
         showToast('Add Stock Failed', data.error || 'Failed to add stock.', 'error');
@@ -772,16 +863,8 @@ export const AdminPortal: React.FC = () => {
         return;
       }
 
-      // Also mirror items to Firestore if available
-      try {
-        if (data.items && Array.isArray(data.items)) {
-          await firebaseService.addStockBatch(data.items);
-        }
-      } catch (fsErr) {
-        console.warn('Firestore stock notice:', fsErr);
-      }
-
-      showToast('Stock Added', `Added ${data.addedCount} Facebook account(s) to stock.`, 'success');
+      const catLabel = stockAddCategory === 'verified' ? 'Verified' : 'Simple';
+      showToast('Stock Added', `Added ${data.addedCount} ${catLabel} Facebook account(s) to stock!`, 'success');
       setPasteStockText('');
       fetchAdminData();
     } catch (err: any) {
@@ -791,14 +874,13 @@ export const AdminPortal: React.FC = () => {
     }
   };
 
-  // 4a. Add Single Individual Stock Account with Cookie
+  // 4a. Add Single Individual Stock Account
   const handleAddSingleStock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!singleUid.trim() || !singlePassword.trim()) {
       showToast('Required', 'Please enter both UID and Password.', 'error');
       return;
     }
-
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
     if (!currentToken) return;
 
@@ -813,10 +895,10 @@ export const AdminPortal: React.FC = () => {
         body: JSON.stringify({ 
           uid: singleUid.trim(),
           password: singlePassword.trim(),
-          cookie: singleCookie.trim() || undefined
+          cookie: singleCookie.trim() || undefined,
+          category: stockAddCategory
         })
       });
-
       const data = await res.json();
       if (!res.ok) {
         showToast('Add Stock Failed', data.error || 'Failed to add account.', 'error');
@@ -824,7 +906,8 @@ export const AdminPortal: React.FC = () => {
         return;
       }
 
-      showToast('Account Added', `Account UID ${singleUid.trim()} added to stock!${singleCookie.trim() ? ' (Cookie attached 🍪)' : ''}`, 'success');
+      const catLabel = stockAddCategory === 'verified' ? 'Verified Account' : 'Simple Account';
+      showToast('Account Added', `${catLabel} UID ${singleUid.trim()} added to stock!${singleCookie.trim() ? ' (Cookie attached 🍪)' : ''}`, 'success');
       setSingleUid('');
       setSinglePassword('');
       setSingleCookie('');
@@ -836,92 +919,37 @@ export const AdminPortal: React.FC = () => {
     }
   };
 
-  // 4b. Firebase Firestore Sync Now
-  const handleSyncFirebaseNow = async () => {
+  // 5. Copy UIDs (All / Available / Sold) Helper
+  const handleCopyUids = async (status: 'all' | 'available' | 'sold') => {
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
     if (!currentToken) return;
-    setIsSyncingFirebase(true);
+
     try {
-      const res = await fetch('/api/admin/firebase-sync-now', {
-        method: 'POST',
+      const catParam = stockFilterCategory !== 'all' ? `&category=${stockFilterCategory}` : '';
+      const res = await fetch(`/api/admin/stock/uids?status=${status}${catParam}`, {
         headers: { Authorization: `Bearer ${currentToken}` }
       });
       const data = await res.json();
-      if (data.success) {
-        showToast('Firestore Synced', 'All current users, stock, and orders saved to Firebase Firestore!', 'success');
+      if (res.ok && data.uids && data.uids.length > 0) {
+        const ok = await copyTextToClipboard(data.text);
+        if (ok) {
+          showToast('UIDs Copied', `Copied ${data.count} ${status.toUpperCase()} UID(s) to clipboard!`, 'success');
+        } else {
+          showToast('Copy Failed', 'Clipboard access denied. Please allow clipboard permissions.', 'error');
+        }
       } else {
-        showToast('Sync Notice', data.error || 'Please check your Firestore rules.', 'warning');
+        showToast('No UIDs', `No ${status} accounts found in this filter.`, 'info');
       }
     } catch (err: any) {
-      showToast('Error', err.message || 'Firebase sync failed.', 'error');
-    } finally {
-      setIsSyncingFirebase(false);
+      showToast('Error', 'Failed to copy UIDs.', 'error');
     }
   };
 
-  // 4c. Firebase Firestore Restore Now
-  const handlePullFirebaseNow = async () => {
-    const currentToken = token || localStorage.getItem('fbstore_auth_token');
-    if (!currentToken) return;
-    setIsSyncingFirebase(true);
-    try {
-      const res = await fetch('/api/admin/firebase-pull-now', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${currentToken}` }
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast('Restored from Firestore', `Recovered ${data.pulledCounts?.users || 0} users and ${data.pulledCounts?.stock || 0} stock items!`, 'success');
-        fetchAdminData();
-      } else {
-        showToast('Restore Notice', data.error || 'Could not pull from Firestore.', 'error');
-      }
-    } catch (err: any) {
-      showToast('Error', err.message || 'Firebase restore failed.', 'error');
-    } finally {
-      setIsSyncingFirebase(false);
-    }
-  };
-
-  // 5. Update Price Per ID
-  const handleUpdatePrice = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const currentToken = token || localStorage.getItem('fbstore_auth_token');
-    if (!currentToken) return;
-
-    if (!priceInput || priceInput <= 0) {
-      showToast('Invalid Price', 'Price must be greater than 0 PKR.', 'error');
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/admin/settings', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${currentToken}`
-        },
-        body: JSON.stringify({ pricePerId: priceInput })
-      });
-
-      if (!res.ok) {
-        showToast('Error', 'Failed to update price.', 'error');
-        return;
-      }
-
-      showToast('Price Updated', `Price set to Rs. ${priceInput} PKR per ID.`, 'success');
-      fetchAdminData();
-    } catch (err: any) {
-      showToast('Error', err.message, 'error');
-    }
-  };
-
-  // 6. Delete single stock item (available or sold)
+  // 6. Delete single stock item
   const handleDeleteStockItem = async (id: string, status?: string) => {
     const isSold = status === 'sold';
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
     if (!currentToken) return;
-
     try {
       const res = await fetch(`/api/admin/stock/${id}`, {
         method: 'DELETE',
@@ -938,15 +966,15 @@ export const AdminPortal: React.FC = () => {
   const handleClearAllSoldStock = async () => {
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
     if (!currentToken) return;
-
     try {
-      const res = await fetch('/api/admin/stock/sold/clear', {
+      const catParam = stockFilterCategory !== 'all' ? `?category=${stockFilterCategory}` : '';
+      const res = await fetch(`/api/admin/stock/sold/clear${catParam}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${currentToken}` }
       });
       const data = await res.json();
       if (res.ok) {
-        showToast('Cleared', `Deleted ${data.removedCount || soldStockCount} sold accounts.`, 'success');
+        showToast('Cleared', `Deleted ${data.removedCount || 0} sold accounts.`, 'success');
         fetchAdminData();
       }
     } catch (err: any) {
@@ -954,168 +982,7 @@ export const AdminPortal: React.FC = () => {
     }
   };
 
-  // 6c. Admin Change Any User's Password
-  const handleAdminChangeUserPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!passwordModalUser || !adminNewPasswordInput) return;
-    const currentToken = token || localStorage.getItem('fbstore_auth_token');
-    if (!currentToken) return;
-
-    setIsUpdatingUserPassword(true);
-    try {
-      const res = await fetch(`/api/admin/users/${passwordModalUser.id}/password`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${currentToken}`
-        },
-        body: JSON.stringify({ newPassword: adminNewPasswordInput })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast('Error', data.error || 'Failed to update user password.', 'error');
-        return;
-      }
-
-      showToast('Password Updated', `New password set for @${passwordModalUser.username}`, 'success');
-      setUsersList(prev => prev.map(u => 
-        u.id === passwordModalUser.id 
-          ? { ...u, plainPassword: adminNewPasswordInput }
-          : u
-      ));
-      setPasswordModalUser(null);
-      setAdminNewPasswordInput('');
-      setShowModalPassword(false);
-    } catch (err: any) {
-      showToast('Error', err.message, 'error');
-    } finally {
-      setIsUpdatingUserPassword(false);
-    }
-  };
-
-  // 6d. Admin Delete User Account
-  const handleAdminDeleteUser = async () => {
-    if (!deleteUserModal) return;
-    const currentToken = token || localStorage.getItem('fbstore_auth_token');
-    if (!currentToken) return;
-
-    setIsDeletingUser(true);
-    try {
-      const res = await fetch(`/api/admin/users/${deleteUserModal.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${currentToken}` }
-      });
-      if (res.ok) {
-        showToast('User Deleted', `Account @${deleteUserModal.username} has been deleted.`, 'info');
-        setUsersList(prev => prev.filter(u => u.id !== deleteUserModal.id));
-        firebaseService.deleteUserFirestore(deleteUserModal.id).catch(() => {});
-        setDeleteUserModal(null);
-      } else {
-        const data = await res.json();
-        showToast('Error', data.error || 'Failed to delete user.', 'error');
-      }
-    } catch (err: any) {
-      showToast('Error', err.message, 'error');
-    } finally {
-      setIsDeletingUser(false);
-    }
-  };
-
-  // 6e. Admin Delete Deposit Request
-  const handleDeleteDeposit = async (depId: string) => {
-    const currentToken = token || localStorage.getItem('fbstore_auth_token');
-    if (!currentToken) return;
-
-    try {
-      const res = await fetch(`/api/admin/deposits/${depId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${currentToken}` }
-      });
-      if (res.ok) {
-        showToast('Deleted', 'Deposit request deleted.', 'info');
-        setDeposits(prev => prev.filter(d => d.id !== depId));
-        firebaseService.deleteDepositFirestore(depId).catch(() => {});
-      } else {
-        const data = await res.json();
-        showToast('Error', data.error || 'Failed to delete deposit.', 'error');
-      }
-    } catch (err: any) {
-      showToast('Error', err.message, 'error');
-    }
-  };
-
-  // 6c. Reset lifetime balance added counter (safe without window.confirm)
-  const handleResetLifetimeBalance = async () => {
-    const currentToken = token || localStorage.getItem('fbstore_auth_token');
-    if (!currentToken) return;
-
-    setIsAdjustingTotal(true);
-    try {
-      const res = await fetch('/api/admin/balance-stats/reset', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${currentToken}` }
-      });
-      if (res.ok) {
-        setTotalLifetimeBalanceAdded(0);
-        showToast('Counter Reset', 'Total added balance counter reset to 0 PKR.', 'success');
-        setTotalBalanceModalOpen(false);
-        fetchAdminData();
-      } else {
-        const d = await res.json();
-        showToast('Error', d.error || 'Failed to reset counter.', 'error');
-      }
-    } catch (err: any) {
-      showToast('Error', err.message || 'Failed to reset counter.', 'error');
-    } finally {
-      setIsAdjustingTotal(false);
-    }
-  };
-
-  // 6d. Deduct or set lifetime balance added counter
-  const handleAdjustTotalLifetimeBalance = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const currentToken = token || localStorage.getItem('fbstore_auth_token');
-    if (!currentToken) return;
-
-    if (totalBalanceMode === 'reset') {
-      return handleResetLifetimeBalance();
-    }
-
-    setIsAdjustingTotal(true);
-    try {
-      const payload = totalBalanceMode === 'deduct'
-        ? { deductAmount: Math.abs(Number(totalBalanceInput)) }
-        : { newAmount: Math.max(0, Number(totalBalanceInput)) };
-
-      const res = await fetch('/api/admin/balance-stats/adjust', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${currentToken}`
-        },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast('Error', data.error || 'Failed to update total balance counter.', 'error');
-        return;
-      }
-
-      setTotalLifetimeBalanceAdded(data.totalBalanceAddedLifetime);
-      const msg = totalBalanceMode === 'deduct'
-        ? `Deducted Rs. ${totalBalanceInput} PKR from total counter.`
-        : `Set total counter to Rs. ${totalBalanceInput} PKR.`;
-      showToast('Counter Updated', msg, 'success');
-      setTotalBalanceModalOpen(false);
-      fetchAdminData();
-    } catch (err: any) {
-      showToast('Error', err.message || 'Failed to update total balance counter.', 'error');
-    } finally {
-      setIsAdjustingTotal(false);
-    }
-  };
-
-  // 7. Save Store Settings
+  // 7. Save Store Settings (Prices, Toggles, Offers, Credentials)
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
@@ -1133,6 +1000,15 @@ export const AdminPortal: React.FC = () => {
         easypaisaNumber: pNumber,
         jazzcashTitle: pTitle,
         jazzcashNumber: pNumber,
+        pricePerIdSimple: Number(settingsForm.pricePerIdSimple),
+        pricePerIdVerified: Number(settingsForm.pricePerIdVerified),
+        pricePerId: Number(settingsForm.pricePerIdSimple),
+        simpleAccountsEnabled: Boolean(settingsForm.simpleAccountsEnabled),
+        verifiedAccountsEnabled: Boolean(settingsForm.verifiedAccountsEnabled),
+        simpleOfferEnabled: Boolean(settingsForm.simpleOfferEnabled),
+        simpleOfferMessage: String(settingsForm.simpleOfferMessage || '').trim(),
+        verifiedOfferEnabled: Boolean(settingsForm.verifiedOfferEnabled),
+        verifiedOfferMessage: String(settingsForm.verifiedOfferMessage || '').trim(),
         whatsappNumber: (settingsForm.whatsappNumber || '').trim(),
       };
 
@@ -1144,98 +1020,20 @@ export const AdminPortal: React.FC = () => {
         },
         body: JSON.stringify(payload)
       });
-
       const data = await res.json();
       if (!res.ok) {
         showToast('Error', data.error || 'Failed to save settings.', 'error');
         return;
       }
 
-      // Save to local cache so other components update instantly
-      if (pTitle) localStorage.setItem('fbstore_cached_account_title', pTitle);
-      if (pNumber) localStorage.setItem('fbstore_cached_account_number', pNumber);
-      if (payload.whatsappNumber) localStorage.setItem('fbstore_cached_whatsapp', payload.whatsappNumber);
-
-      // Mirror settings to Firestore
-      try {
-        await firebaseService.saveSettings(data.settings);
-      } catch (fsErr) {
-        console.warn('Firestore settings notice:', fsErr);
-      }
-
-      showToast('Settings Saved', 'JazzCash account and store settings updated live on main website.', 'success');
+      showToast('Settings Saved', 'Prices, box visibility, offers, and payment details updated live across website.', 'success');
       fetchAdminData();
     } catch (err: any) {
       showToast('Error', err.message, 'error');
     }
   };
 
-  // 8. Download Full Database Backup (db.json)
-  const handleDownloadBackup = async () => {
-    const currentToken = token || localStorage.getItem('fbstore_auth_token');
-    if (!currentToken) return;
-
-    try {
-      const res = await fetch('/api/admin/database/backup', {
-        headers: { Authorization: `Bearer ${currentToken}` }
-      });
-      if (!res.ok) {
-        showToast('Backup Failed', 'Could not download database backup.', 'error');
-        return;
-      }
-      const data = await res.json();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `fbstore-database-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      showToast('Backup Downloaded', 'Full database backup saved to your device.', 'success');
-    } catch (err: any) {
-      showToast('Error', err.message || 'Backup failed', 'error');
-    }
-  };
-
-  // 9. Restore Database from Backup File
-  const handleRestoreBackupFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const currentToken = token || localStorage.getItem('fbstore_auth_token');
-    if (!currentToken) return;
-
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-
-      const res = await fetch('/api/admin/database/restore', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${currentToken}`
-        },
-        body: JSON.stringify(parsed)
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        showToast('Restore Failed', data.error || 'Failed to restore database.', 'error');
-        return;
-      }
-
-      showToast('Database Restored', data.message || 'All users and data restored successfully!', 'success');
-      fetchAdminData();
-    } catch (err: any) {
-      showToast('Error', 'Invalid backup file or parse error: ' + (err.message || ''), 'error');
-    } finally {
-      e.target.value = '';
-    }
-  };
-
-  // 10. Save Marquee Ticker Settings
+  // 8. Save Marquee Ticker Settings with INSTANT local & storage broadcast
   const handleSaveMarquee = async (e: React.FormEvent) => {
     e.preventDefault();
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
@@ -1252,8 +1050,16 @@ export const AdminPortal: React.FC = () => {
         body: JSON.stringify(marqueeSettings)
       });
       if (res.ok) {
-        showToast('Marquee Updated', 'Top announcement ticker updated live across website.', 'success');
+        // Immediate local & storage & BroadcastChannel broadcast so website updates in real-time with 0-second delay!
+        localStorage.setItem('fbstore_cached_marquee', JSON.stringify(marqueeSettings));
+        window.dispatchEvent(new CustomEvent('fbstore_marquee_updated', { detail: marqueeSettings }));
+        try {
+          const ch = new BroadcastChannel('fbstore_realtime_channel');
+          ch.postMessage({ type: 'marquee_updated', marquee: marqueeSettings });
+          ch.close();
+        } catch (err) {}
         firebaseService.saveMarquee(marqueeSettings).catch(() => {});
+        showToast('Marquee Updated', 'Top announcement ticker updated live across website.', 'success');
       } else {
         const d = await res.json();
         showToast('Error', d.error || 'Failed to save marquee.', 'error');
@@ -1265,37 +1071,43 @@ export const AdminPortal: React.FC = () => {
     }
   };
 
-  // 10.1 Save Welcome Greeting Settings
-  const handleSaveWelcomeSettings = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // 9. Feedback Management
+  const handleUpdateFeedbackStatus = async (id: string, status: 'new' | 'reviewed' | 'resolved') => {
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
     if (!currentToken) return;
-
-    setIsSavingWelcome(true);
     try {
-      const res = await fetch('/api/admin/welcome-settings', {
+      const res = await fetch(`/api/admin/feedbacks/${id}/status`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${currentToken}`
         },
-        body: JSON.stringify(welcomeSettings)
+        body: JSON.stringify({ status })
       });
       if (res.ok) {
-        showToast('Welcome Template Saved', 'Auto-greeting for new registered users updated.', 'success');
-      } else {
-        const d = await res.json();
-        showToast('Error', d.error || 'Failed to save welcome settings.', 'error');
+        setFeedbacks(prev => prev.map(f => f.id === id ? { ...f, status } : f));
+        showToast('Status Updated', `Feedback marked as ${status}.`, 'info');
       }
-    } catch (err: any) {
-      showToast('Error', err.message || 'Failed to save welcome settings.', 'error');
-    } finally {
-      setIsSavingWelcome(false);
-    }
+    } catch (err) {}
   };
 
-  // 11. Open Announcement Modal (New)
-  const handleOpenCreateAnnouncementModal = () => {
+  const handleDeleteFeedback = async (id: string) => {
+    const currentToken = token || localStorage.getItem('fbstore_auth_token');
+    if (!currentToken) return;
+    try {
+      const res = await fetch(`/api/admin/feedbacks/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${currentToken}` }
+      });
+      if (res.ok) {
+        setFeedbacks(prev => prev.filter(f => f.id !== id));
+        showToast('Deleted', 'Feedback item removed.', 'info');
+      }
+    } catch (err) {}
+  };
+
+  // 10. Site Announcements Management
+  const handleOpenNewAnnouncement = () => {
     setEditingAnnouncement(null);
     setAnnTitle('');
     setAnnMessage('');
@@ -1308,83 +1120,102 @@ export const AdminPortal: React.FC = () => {
     setAnnouncementModalOpen(true);
   };
 
-  // 12. Open Announcement Modal (Edit)
-  const handleOpenEditAnnouncementModal = (ann: Announcement) => {
+  const handleOpenEditAnnouncement = (ann: Announcement) => {
     setEditingAnnouncement(ann);
     setAnnTitle(ann.title);
     setAnnMessage(ann.message);
-    setAnnType(ann.type);
-    setAnnTargetType(ann.targetType);
-    setAnnTargetUserId(ann.targetUserId || '');
+    setAnnType(ann.type || 'info');
+    setAnnTargetType(ann.targetType || 'all');
+    setAnnTargetUserId(ann.targetUserId || ann.targetUsername || '');
     setAnnShowAsPopup(Boolean(ann.showAsPopup));
     setAnnFrequency(ann.frequency || 'every_refresh');
-    setAnnActive(ann.active);
+    setAnnActive(ann.active !== false);
     setAnnouncementModalOpen(true);
   };
 
-  // 13. Save Announcement (Create or Update)
   const handleSaveAnnouncement = async (e: React.FormEvent) => {
     e.preventDefault();
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
     if (!currentToken) return;
 
     if (!annTitle.trim() || !annMessage.trim()) {
-      showToast('Validation Error', 'Title and message are required.', 'error');
+      showToast('Missing Fields', 'Title and announcement message are required.', 'error');
       return;
     }
 
     setIsSavingAnnouncement(true);
     try {
-      const targetUser = usersList.find(u => u.id === annTargetUserId);
       const payload = {
         title: annTitle.trim(),
         message: annMessage.trim(),
         type: annType,
         targetType: annTargetType,
-        targetUserId: annTargetType === 'user' ? annTargetUserId : undefined,
-        targetUsername: annTargetType === 'user' ? (targetUser?.username || '') : undefined,
+        targetUserId: annTargetType === 'user' ? annTargetUserId.trim() : undefined,
+        targetUsername: annTargetType === 'user' ? annTargetUserId.trim() : undefined,
         showAsPopup: annShowAsPopup,
         frequency: annFrequency,
         active: annActive
       };
 
-      const url = editingAnnouncement 
-        ? `/api/admin/announcements/${editingAnnouncement.id}` 
-        : '/api/admin/announcements';
-      const method = editingAnnouncement ? 'PUT' : 'POST';
-
-      const res = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${currentToken}`
-        },
-        body: JSON.stringify(payload)
-      });
+      const res = editingAnnouncement
+        ? await fetch(`/api/admin/announcements/${editingAnnouncement.id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${currentToken}`
+            },
+            body: JSON.stringify(payload)
+          })
+        : await fetch('/api/admin/announcements', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${currentToken}`
+            },
+            body: JSON.stringify(payload)
+          });
 
       const data = await res.json();
       if (res.ok) {
         showToast(
           editingAnnouncement ? 'Announcement Updated' : 'Announcement Published',
-          'Announcement is now active and live for website users.',
+          'Announcement is now live on customer dashboards.',
           'success'
         );
-        if (data.announcement) {
-          firebaseService.saveAnnouncement(data.announcement).catch(() => {});
-        }
         setAnnouncementModalOpen(false);
-        fetchAdminData();
+        setEditingAnnouncement(null);
+        await fetchAdminData();
       } else {
         showToast('Error', data.error || 'Failed to save announcement.', 'error');
       }
     } catch (err: any) {
-      showToast('Error', err.message || 'Network error occurred.', 'error');
+      showToast('Error', err.message || 'Failed to save announcement.', 'error');
     } finally {
       setIsSavingAnnouncement(false);
     }
   };
 
-  // 14. Delete Announcement
+  const handleToggleAnnouncementActive = async (ann: Announcement) => {
+    const currentToken = token || localStorage.getItem('fbstore_auth_token');
+    if (!currentToken) return;
+
+    const nextState = !ann.active;
+    try {
+      const res = await fetch(`/api/admin/announcements/${ann.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${currentToken}`
+        },
+        body: JSON.stringify({ active: nextState })
+      });
+      if (res.ok) {
+        setAnnouncementsList(prev => prev.map(a => a.id === ann.id ? { ...a, active: nextState } : a));
+        showToast('Status Updated', `Announcement ${nextState ? 'activated' : 'paused'}.`, 'info');
+      }
+    } catch (err) {}
+  };
+
   const handleDeleteAnnouncement = async (id: string) => {
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
     if (!currentToken) return;
@@ -1395,93 +1226,183 @@ export const AdminPortal: React.FC = () => {
         headers: { Authorization: `Bearer ${currentToken}` }
       });
       if (res.ok) {
-        showToast('Announcement Deleted', 'Announcement has been removed from site.', 'info');
         setAnnouncementsList(prev => prev.filter(a => a.id !== id));
-        firebaseService.deleteAnnouncement(id).catch(() => {});
-      } else {
-        const d = await res.json();
-        showToast('Error', d.error || 'Failed to delete announcement.', 'error');
-      }
-    } catch (err: any) {
-      showToast('Error', err.message || 'Failed to delete announcement.', 'error');
-    }
-  };
-
-  // 15. Toggle Announcement Active/Inactive
-  const handleToggleAnnouncementActive = async (ann: Announcement) => {
-    const currentToken = token || localStorage.getItem('fbstore_auth_token');
-    if (!currentToken) return;
-
-    try {
-      const nextActive = !ann.active;
-      const res = await fetch(`/api/admin/announcements/${ann.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${currentToken}`
-        },
-        body: JSON.stringify({ active: nextActive })
-      });
-      if (res.ok) {
-        setAnnouncementsList(prev => prev.map(a => a.id === ann.id ? { ...a, active: nextActive } : a));
-        firebaseService.saveAnnouncement({ ...ann, active: nextActive }).catch(() => {});
-        showToast('Status Changed', nextActive ? 'Announcement is now visible.' : 'Announcement is now hidden.', 'info');
+        showToast('Deleted', 'Announcement removed from site.', 'info');
       }
     } catch (err) {}
   };
 
-  // 16. Open Send Message Modal for User
-  const handleOpenSendMessageModal = (targetUser?: UserStatsItem) => {
-    setMessageTargetUser(targetUser || null);
+  // 11. Database Backup Export & Restore
+  const handleDownloadBackup = async () => {
+    const currentToken = token || localStorage.getItem('fbstore_auth_token');
+    if (!currentToken) return;
+
+    setIsExportingBackup(true);
+    try {
+      const res = await fetch('/api/admin/database/backup', {
+        headers: { Authorization: `Bearer ${currentToken}` }
+      });
+      if (!res.ok) throw new Error('Failed to generate backup snapshot');
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fbstore-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Backup Exported', 'Complete database snapshot downloaded successfully.', 'success');
+    } catch (err: any) {
+      showToast('Export Error', err.message || 'Failed to download backup.', 'error');
+    } finally {
+      setIsExportingBackup(false);
+    }
+  };
+
+  const handleSelectRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+        if (!parsed || typeof parsed !== 'object') {
+          showToast('Invalid File', 'File is not a valid JSON database backup.', 'error');
+          return;
+        }
+
+        const usersCount = Array.isArray(parsed.users) ? parsed.users.length : 0;
+        const stockCount = Array.isArray(parsed.idsStock) 
+          ? parsed.idsStock.length 
+          : (Array.isArray(parsed.stock) ? parsed.stock.length : 0);
+        const purchasesCount = Array.isArray(parsed.purchases) 
+          ? parsed.purchases.length 
+          : (Array.isArray(parsed.orders) ? parsed.orders.length : 0);
+        const depositsCount = Array.isArray(parsed.deposits) ? parsed.deposits.length : 0;
+        const announcementsCount = Array.isArray(parsed.announcements) ? parsed.announcements.length : 0;
+        const feedbacksCount = Array.isArray(parsed.feedbacks) ? parsed.feedbacks.length : 0;
+
+        setBackupRestorePreview({
+          fileName: file.name,
+          usersCount,
+          stockCount,
+          purchasesCount,
+          depositsCount,
+          announcementsCount,
+          feedbacksCount
+        });
+        setPendingRestoreData(parsed);
+        showToast('Backup Verified', 'Backup file analyzed. Review details below and click Confirm Restore.', 'info');
+      } catch (err) {
+        showToast('Parse Error', 'Failed to parse JSON backup file.', 'error');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleConfirmRestoreDatabase = async () => {
+    if (!pendingRestoreData) return;
+    const currentToken = token || localStorage.getItem('fbstore_auth_token');
+    if (!currentToken) return;
+
+    setIsRestoringBackup(true);
+    try {
+      const res = await fetch('/api/admin/database/restore', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${currentToken}`
+        },
+        body: JSON.stringify(pendingRestoreData)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPendingRestoreData(null);
+        setBackupRestorePreview(null);
+        await fetchAdminData();
+        showToast('Restore Complete', 'Database successfully restored! All users, stock, and orders are live.', 'success');
+      } else {
+        showToast('Restore Failed', data.error || 'Failed to restore database.', 'error');
+      }
+    } catch (err: any) {
+      showToast('Error', err.message || 'Restore request failed.', 'error');
+    } finally {
+      setIsRestoringBackup(false);
+    }
+  };
+
+  // 12. Direct Admin Messaging Handlers
+  const handleOpenMessageModal = (targetUser?: UserStatsItem) => {
+    if (targetUser) {
+      setMessageTargetUser(targetUser);
+      setMsgTargetType('user');
+      setMsgSelectedUserId(targetUser.id);
+    } else {
+      setMessageTargetUser(null);
+      setMsgTargetType('all');
+      setMsgSelectedUserId(usersList[0]?.id || '');
+    }
     setMsgTitle('');
     setMsgBody('');
     setMsgPriority('normal');
     setMessageModalOpen(true);
   };
 
-  // 17. Send Message to User
-  const handleSendMessageToUser = async (e: React.FormEvent) => {
+  const handleSendAdminMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
     if (!currentToken) return;
 
     if (!msgTitle.trim() || !msgBody.trim()) {
-      showToast('Validation Error', 'Title and message text are required.', 'error');
+      showToast('Missing Fields', 'Message title and body are required.', 'error');
       return;
     }
 
-    const recipientId = messageTargetUser ? messageTargetUser.id : 'all';
-    const recipientUsername = messageTargetUser ? messageTargetUser.username : 'All Users';
+    const isBroadcast = msgTargetType === 'all';
+    const targetUserId = isBroadcast ? 'all' : (msgSelectedUserId || messageTargetUser?.id);
+    if (!targetUserId) {
+      showToast('Missing Recipient', 'Please select a recipient user.', 'error');
+      return;
+    }
+
+    const targetUserObj = usersList.find(u => u.id === targetUserId);
+    const targetUsername = isBroadcast ? 'All Registered Users' : (targetUserObj?.username || messageTargetUser?.username || 'Customer');
 
     setIsSendingMessage(true);
     try {
-      const payload = {
-        userId: recipientId,
-        targetUsername: recipientUsername,
-        title: msgTitle.trim(),
-        message: msgBody.trim(),
-        priority: msgPriority
-      };
-
       const res = await fetch('/api/admin/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${currentToken}`
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          userId: targetUserId,
+          targetUsername,
+          title: msgTitle.trim(),
+          message: msgBody.trim(),
+          priority: msgPriority
+        })
       });
 
       const data = await res.json();
-      if (res.ok) {
-        showToast('Message Sent', `Official message sent to @${recipientUsername}.`, 'success');
-        if (data.message) {
-          firebaseService.sendAdminMessage(data.message).catch(() => {});
-          setSentMessagesList(prev => [data.message, ...prev]);
-        }
+      if (res.ok && data.message) {
+        setSentMessagesList(prev => [data.message, ...prev.filter(m => m.id !== data.message.id)]);
+        showToast(
+          'Message Dispatched',
+          `Direct notification sent to ${isBroadcast ? 'all users' : `@${targetUsername}`}.`,
+          'success'
+        );
         setMessageModalOpen(false);
+        setMsgTitle('');
+        setMsgBody('');
       } else {
-        showToast('Error', data.error || 'Failed to send message.', 'error');
+        showToast('Error', data.error || 'Failed to send direct message.', 'error');
       }
     } catch (err: any) {
       showToast('Error', err.message || 'Failed to send message.', 'error');
@@ -1490,48 +1411,150 @@ export const AdminPortal: React.FC = () => {
     }
   };
 
-  // 18. Delete Admin Message
-  const handleDeleteAdminMessage = async (msgId: string) => {
+  const handleDeleteAdminMessage = async (id: string) => {
     const currentToken = token || localStorage.getItem('fbstore_auth_token');
     if (!currentToken) return;
 
     try {
-      const res = await fetch(`/api/admin/messages/${msgId}`, {
+      const res = await fetch(`/api/admin/messages/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${currentToken}` }
       });
       if (res.ok) {
-        showToast('Message Deleted', 'Admin message deleted.', 'info');
-        setSentMessagesList(prev => prev.filter(m => m.id !== msgId));
+        setSentMessagesList(prev => prev.filter(m => m.id !== id));
+        showToast('Deleted', 'Direct message removed.', 'info');
       }
     } catch (err) {}
   };
 
-  // Filtered Users List
-  const filteredUsers = usersList.filter(u => {
-    const q = userSearchQuery.toLowerCase().trim();
-    if (!q) return true;
-    return u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
-  });
+  // 13. Admin Password Management for Any User
+  const handleUpdateUserPasswordByAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordModalUser) return;
+    const currentToken = token || localStorage.getItem('fbstore_auth_token');
+    if (!currentToken) return;
 
-  const pendingDeposits = deposits.filter(d => d.status === 'pending');
-  const availableStockCount = stock.filter(s => s.status === 'available').length;
-  const soldStockCount = stock.filter(s => s.status === 'sold').length;
+    if (!adminNewPasswordInput.trim() || adminNewPasswordInput.trim().length < 6) {
+      showToast('Invalid Password', 'New password must be at least 6 characters.', 'error');
+      return;
+    }
 
-  const copyFirestoreRule = () => {
-    const ruleText = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if true;\n    }\n  }\n}`;
-    navigator.clipboard.writeText(ruleText);
-    setCopiedRules(true);
-    setTimeout(() => setCopiedRules(false), 2500);
-    showToast('Rules Copied', 'Firestore security rules copied to clipboard.', 'info');
+    setIsUpdatingUserPassword(true);
+    try {
+      const res = await fetch(`/api/admin/users/${passwordModalUser.id}/password`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${currentToken}`
+        },
+        body: JSON.stringify({ newPassword: adminNewPasswordInput.trim() })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Password Changed', `New password saved for @${passwordModalUser.username}.`, 'success');
+        setPasswordModalUser(null);
+        setAdminNewPasswordInput('');
+        await fetchAdminData();
+      } else {
+        showToast('Error', data.error || 'Failed to update user password.', 'error');
+      }
+    } catch (err: any) {
+      showToast('Error', err.message || 'Failed to update password.', 'error');
+    } finally {
+      setIsUpdatingUserPassword(false);
+    }
   };
 
-  // Render Login Screen if not authenticated as admin
+  // 14. Admin Delete User Account
+  const handleDeleteUserByAdmin = async () => {
+    if (!deleteUserModal) return;
+    const currentToken = token || localStorage.getItem('fbstore_auth_token');
+    if (!currentToken) return;
+
+    setIsDeletingUser(true);
+    try {
+      const res = await fetch(`/api/admin/users/${deleteUserModal.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${currentToken}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setUsersList(prev => prev.filter(u => u.id !== deleteUserModal.id));
+        showToast('User Deleted', `Account @${deleteUserModal.username} deleted from database.`, 'info');
+        setDeleteUserModal(null);
+        await fetchAdminData();
+      } else {
+        showToast('Error', data.error || 'Failed to delete user.', 'error');
+      }
+    } catch (err: any) {
+      showToast('Error', err.message || 'Failed to delete user.', 'error');
+    } finally {
+      setIsDeletingUser(false);
+    }
+  };
+
+  // 15. Admin Adjust Total Lifetime Balance Added
+  const handleAdjustTotalLifetimeBalance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const currentToken = token || localStorage.getItem('fbstore_auth_token');
+    if (!currentToken) return;
+
+    setIsAdjustingTotal(true);
+    try {
+      if (totalBalanceMode === 'reset') {
+        const res = await fetch('/api/admin/balance-stats/reset', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${currentToken}` }
+        });
+        if (res.ok) {
+          setTotalLifetimeBalanceAdded(0);
+          showToast('Counter Reset', 'Total lifetime balance counter reset to Rs. 0 PKR.', 'info');
+          setTotalBalanceModalOpen(false);
+        }
+      } else {
+        const res = await fetch('/api/admin/balance-stats/adjust', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${currentToken}`
+          },
+          body: JSON.stringify({ mode: totalBalanceMode, amount: totalBalanceInput })
+        });
+        const d = await res.json();
+        if (res.ok) {
+          setTotalLifetimeBalanceAdded(d.totalBalanceAddedLifetime ?? totalBalanceInput);
+          showToast('Updated', `Total balance stat adjusted to Rs. ${(d.totalBalanceAddedLifetime ?? totalBalanceInput).toLocaleString()} PKR.`, 'success');
+          setTotalBalanceModalOpen(false);
+        }
+      }
+    } catch (err: any) {
+      showToast('Error', err.message || 'Failed to adjust balance stat.', 'error');
+    } finally {
+      setIsAdjustingTotal(false);
+    }
+  };
+
+  // Filtered Stock List
+  const filteredStock = stock.filter(item => {
+    const cat = item.category || 'simple';
+    if (stockFilterCategory !== 'all' && cat !== stockFilterCategory) return false;
+    if (stockFilterStatus === 'available' && item.status !== 'available') return false;
+    if (stockFilterStatus === 'sold' && item.status !== 'sold') return false;
+    return true;
+  });
+
+  const availableSimpleCount = stock.filter(s => (s.category || 'simple') === 'simple' && s.status === 'available').length;
+  const availableVerifiedCount = stock.filter(s => s.category === 'verified' && s.status === 'available').length;
+  const soldSimpleCount = stock.filter(s => (s.category || 'simple') === 'simple' && s.status === 'sold').length;
+  const soldVerifiedCount = stock.filter(s => s.category === 'verified' && s.status === 'sold').length;
+  const pendingDeposits = deposits.filter(d => d.status === 'pending');
+  const unreadFeedbacks = feedbacks.filter(f => f.status === 'new');
+
+  // Render Login Screen if not authenticated
   if (!isLoggedInAsAdmin) {
     return (
       <div className="min-h-screen bg-[#080c14] flex flex-col items-center justify-center p-4 selection:bg-blue-600 selection:text-white">
         <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
-          
           <div className="text-center space-y-2">
             <div className="w-12 h-12 rounded-xl bg-blue-600/10 border border-blue-500/20 text-[#1877F2] flex items-center justify-center mx-auto">
               <ShieldCheck className="w-7 h-7" />
@@ -1564,7 +1587,6 @@ export const AdminPortal: React.FC = () => {
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#1877F2]"
               />
             </div>
-
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                 Admin Password
@@ -1595,7 +1617,6 @@ export const AdminPortal: React.FC = () => {
               )}
             </button>
           </form>
-
         </div>
       </div>
     );
@@ -1604,8 +1625,7 @@ export const AdminPortal: React.FC = () => {
   // Render Full Admin Dashboard
   return (
     <div className="min-h-screen bg-[#080c14] text-slate-100 flex flex-col selection:bg-blue-600 selection:text-white">
-      
-      {/* Admin Top Header */}
+      {/* Top Header */}
       <header className="sticky top-0 z-40 bg-slate-950/90 border-b border-slate-800 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
@@ -1637,12 +1657,11 @@ export const AdminPortal: React.FC = () => {
         </div>
       </header>
 
-      {/* Admin Body */}
+      {/* Main Body */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 space-y-6">
         
         {/* Metric Cards Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-          
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
             <span className="text-[11px] text-slate-400 font-semibold block uppercase">Pending Deposits</span>
             <div className="flex items-baseline justify-between mt-1">
@@ -1654,7 +1673,37 @@ export const AdminPortal: React.FC = () => {
           </div>
 
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
-            <span className="text-[11px] text-slate-400 font-semibold block uppercase">Registered Users</span>
+            <span className="text-[11px] text-slate-400 font-semibold block uppercase">Simple Stock</span>
+            <div className="flex items-baseline justify-between mt-1">
+              <span className="text-2xl font-black text-blue-400">
+                {availableSimpleCount}
+              </span>
+              <span className="text-[10px] font-bold text-slate-500">Rs. {settingsForm.pricePerIdSimple}</span>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+            <span className="text-[11px] text-slate-400 font-semibold block uppercase">Verified Stock</span>
+            <div className="flex items-baseline justify-between mt-1">
+              <span className="text-2xl font-black text-cyan-400">
+                {availableVerifiedCount}
+              </span>
+              <span className="text-[10px] font-bold text-slate-500">Rs. {settingsForm.pricePerIdVerified}</span>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+            <span className="text-[11px] text-slate-400 font-semibold block uppercase">Feedback / Inbox</span>
+            <div className="flex items-baseline justify-between mt-1">
+              <span className={`text-2xl font-black ${unreadFeedbacks.length > 0 ? 'text-purple-400' : 'text-slate-300'}`}>
+                {feedbacks.length}
+              </span>
+              <MessageSquarePlus className="w-4 h-4 text-purple-400" />
+            </div>
+          </div>
+
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+            <span className="text-[11px] text-slate-400 font-semibold block uppercase">Customers</span>
             <div className="flex items-baseline justify-between mt-1">
               <span className="text-2xl font-black text-indigo-400">
                 {usersList.length}
@@ -1663,65 +1712,22 @@ export const AdminPortal: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
-            <span className="text-[11px] text-slate-400 font-semibold block uppercase">Available Stock</span>
-            <div className="flex items-baseline justify-between mt-1">
-              <span className="text-2xl font-black text-emerald-400">
-                {availableStockCount}
-              </span>
-              <Layers className="w-4 h-4 text-emerald-400" />
-            </div>
-          </div>
-
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
-            <span className="text-[11px] text-slate-400 font-semibold block uppercase">Price / ID</span>
-            <div className="flex items-baseline justify-between mt-1">
-              <span className="text-2xl font-black text-white font-mono">
-                Rs. {priceInput || storeSettings?.pricePerId || 12}
-              </span>
-              <DollarSign className="w-4 h-4 text-slate-400" />
-            </div>
-          </div>
-
-          {/* 5th Metric Card: Total Lifetime Balance Added with Deduct & Reset Options */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 col-span-2 sm:col-span-1">
+          <div 
+            onClick={() => setTotalBalanceModalOpen(true)}
+            className="bg-slate-900/80 hover:bg-slate-800/80 border border-slate-800 hover:border-emerald-500/40 rounded-2xl p-4 cursor-pointer transition group"
+            title="Click to adjust or reset lifetime balance added counter"
+          >
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-slate-400 font-semibold block uppercase">Total Balance Added</span>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTotalBalanceMode('deduct');
-                    setTotalBalanceInput(100);
-                    setTotalBalanceModalOpen(true);
-                  }}
-                  className="text-[10px] font-bold text-amber-400 hover:text-white bg-amber-500/10 hover:bg-amber-500/80 px-2 py-0.5 rounded transition cursor-pointer flex items-center gap-0.5"
-                  title="Deduct/reduce amount from total balance added"
-                >
-                  <Minus className="w-2.5 h-2.5" />
-                  <span>Deduct</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTotalBalanceMode('reset');
-                    setTotalBalanceModalOpen(true);
-                  }}
-                  className="text-[10px] font-bold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500/80 px-2 py-0.5 rounded transition cursor-pointer"
-                  title="Reset total balance added counter"
-                >
-                  Reset
-                </button>
-              </div>
+              <span className="text-[11px] text-slate-400 group-hover:text-emerald-300 font-semibold uppercase">Total Balance</span>
+              <Edit3 className="w-3 h-3 text-slate-500 group-hover:text-emerald-400" />
             </div>
             <div className="flex items-baseline justify-between mt-1">
-              <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono">
+              <span className="text-xl font-black text-emerald-400 font-mono">
                 Rs. {(totalLifetimeBalanceAdded || 0).toLocaleString()}
               </span>
               <Wallet className="w-4 h-4 text-emerald-400" />
             </div>
           </div>
-
         </div>
 
         {/* Tab Navigation */}
@@ -1739,18 +1745,6 @@ export const AdminPortal: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('users')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
-              activeTab === 'users'
-                ? 'bg-[#1877F2] text-white shadow-md'
-                : 'text-slate-400 hover:text-white hover:bg-slate-900'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>Customer Accounts & Wallets ({usersList.length})</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('stock')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
               activeTab === 'stock'
@@ -1759,7 +1753,36 @@ export const AdminPortal: React.FC = () => {
             }`}
           >
             <Layers className="w-4 h-4" />
-            <span>Manage Stock & Price</span>
+            <span>Manage Stock & Categories</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('feedback')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              activeTab === 'feedback'
+                ? 'bg-[#1877F2] text-white shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+            }`}
+          >
+            <MessageSquarePlus className="w-4 h-4" />
+            <span>Feedback & Suggestions ({feedbacks.length})</span>
+            {unreadFeedbacks.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
+                {unreadFeedbacks.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              activeTab === 'users'
+                ? 'bg-[#1877F2] text-white shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>Customer Accounts ({usersList.length})</span>
           </button>
 
           <button
@@ -1771,7 +1794,7 @@ export const AdminPortal: React.FC = () => {
             }`}
           >
             <Megaphone className="w-4 h-4" />
-            <span>Announcements & Marquee ({announcementsList.length})</span>
+            <span>Announcements & Marquee</span>
           </button>
 
           <button
@@ -1787,6 +1810,18 @@ export const AdminPortal: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveTab('backup')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              activeTab === 'backup'
+                ? 'bg-[#1877F2] text-white shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+            }`}
+          >
+            <Database className="w-4 h-4" />
+            <span>Database Backup & Restore</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('settings')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
               activeTab === 'settings'
@@ -1795,7 +1830,7 @@ export const AdminPortal: React.FC = () => {
             }`}
           >
             <Settings className="w-4 h-4" />
-            <span>EasyPaisa & Admin Settings</span>
+            <span>Pricing, Boxes, Offers & Settings</span>
           </button>
         </div>
 
@@ -1820,8 +1855,6 @@ export const AdminPortal: React.FC = () => {
                     }`}
                   >
                     <div className="flex items-start gap-4">
-                      
-                      {/* Screenshot Thumbnail */}
                       {dep.screenshotUrl && dep.screenshotUrl.startsWith('data:image') ? (
                         <div
                           onClick={() => setPreviewScreenshot(dep.screenshotUrl)}
@@ -1839,7 +1872,6 @@ export const AdminPortal: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Request Details */}
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-base font-black text-white font-mono">
@@ -1857,7 +1889,6 @@ export const AdminPortal: React.FC = () => {
                             {dep.status}
                           </span>
                         </div>
-
                         <div className="text-xs text-slate-300 mt-1 space-y-0.5">
                           <div>
                             User: <strong className="text-white">@{dep.username}</strong> ({dep.userEmail})
@@ -1873,13 +1904,9 @@ export const AdminPortal: React.FC = () => {
                           </div>
                         </div>
                       </div>
-
                     </div>
 
-                    {/* Action Buttons & Three-Dots Menu */}
                     <div className="flex items-center gap-2 md:self-center relative deposit-action-menu">
-                      
-                      {/* Open WhatsApp with User */}
                       {storeSettings?.whatsappNumber && (
                         <a
                           href={`https://wa.me/${storeSettings.whatsappNumber.replace(/[^0-9]/g, '')}`}
@@ -1904,7 +1931,6 @@ export const AdminPortal: React.FC = () => {
                           >
                             Reject
                           </button>
-
                           <button
                             type="button"
                             disabled={isProcessing}
@@ -1917,7 +1943,6 @@ export const AdminPortal: React.FC = () => {
                         </>
                       )}
 
-                      {/* Three-Dots Menu for Any Status */}
                       <div className="relative">
                         <button
                           type="button"
@@ -1925,25 +1950,16 @@ export const AdminPortal: React.FC = () => {
                             e.stopPropagation();
                             setActiveMenuDepositId(activeMenuDepositId === dep.id ? null : dep.id);
                           }}
-                          className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center justify-center ${
-                            activeMenuDepositId === dep.id 
-                              ? 'bg-[#1877F2] text-white border-blue-500 shadow-md shadow-blue-500/20' 
-                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                          }`}
-                          title="Options / Change Status"
+                          className="p-2.5 rounded-xl border bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700 cursor-pointer"
+                          title="Options"
                         >
                           <MoreVertical className="w-4 h-4" />
                         </button>
-
                         {activeMenuDepositId === dep.id && (
                           <div 
-                            onClick={(e) => e.stopPropagation()} 
-                            className="absolute right-0 top-full mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5 z-30 space-y-1 animate-in fade-in duration-100"
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute right-0 top-full mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5 z-30 space-y-1"
                           >
-                            <div className="px-2.5 py-1 text-[10px] uppercase font-bold text-slate-400 tracking-wider border-b border-slate-800 pb-1 mb-1">
-                              Deposit Status Actions
-                            </div>
-
                             {dep.status !== 'approved' && (
                               <button
                                 type="button"
@@ -1954,7 +1970,6 @@ export const AdminPortal: React.FC = () => {
                                 <span>Mark Approved (+Rs {dep.amount})</span>
                               </button>
                             )}
-
                             {dep.status !== 'pending' && (
                               <button
                                 type="button"
@@ -1965,7 +1980,6 @@ export const AdminPortal: React.FC = () => {
                                 <span>Revert to Pending</span>
                               </button>
                             )}
-
                             {dep.status !== 'rejected' && (
                               <button
                                 type="button"
@@ -1980,292 +1994,210 @@ export const AdminPortal: React.FC = () => {
                                 <span>Mark Rejected</span>
                               </button>
                             )}
-
-                            <div className="border-t border-slate-800 my-1" />
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setActiveMenuDepositId(null);
-                                handleDeleteDeposit(dep.id);
-                              }}
-                              className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-rose-500 hover:bg-rose-500/10 rounded-lg transition text-left cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Delete Deposit Request</span>
-                            </button>
                           </div>
                         )}
                       </div>
                     </div>
-
                   </div>
                 ))}
               </div>
             )}
-
           </div>
         )}
 
-        {/* TAB 2: USER ACCOUNTS & DIRECT BALANCE MANAGEMENT (Requested feature) */}
-        {activeTab === 'users' && (
-          <div className="space-y-4">
-            
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-bold text-white">Customer Accounts Management</h3>
-                <p className="text-xs text-slate-400">
-                  Search any user when they send a payment screenshot on WhatsApp to instantly credit their wallet.
-                </p>
-              </div>
-
-              {/* User Search Input */}
-              <div className="relative min-w-[260px]">
-                <Search className="w-4 h-4 absolute left-3.5 top-2.5 text-slate-500" />
-                <input
-                  type="text"
-                  value={userSearchQuery}
-                  onChange={(e) => setUserSearchQuery(e.target.value)}
-                  placeholder="Search by username or email..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#1877F2]"
-                />
-              </div>
-            </div>
-
-            {/* Users Table */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-lg">
-              {filteredUsers.length === 0 ? (
-                <div className="p-8 text-center text-xs text-slate-500">
-                  {userSearchQuery ? 'No customer found matching your search.' : 'No registered customers yet.'}
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-950 text-slate-400">
-                      <tr>
-                        <th className="p-3.5">Customer</th>
-                        <th className="p-3.5">Email</th>
-                        <th className="p-3.5">Password</th>
-                        <th className="p-3.5">Wallet Balance</th>
-                        <th className="p-3.5">Purchases</th>
-                        <th className="p-3.5">Registered</th>
-                        <th className="p-3.5 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800 text-slate-300">
-                      {filteredUsers.map((u) => (
-                        <tr key={u.id} className="hover:bg-slate-800/40">
-                          <td className="p-3.5 font-bold text-white">
-                            @{u.username}
-                          </td>
-                          <td className="p-3.5 text-slate-400">
-                            {u.email}
-                          </td>
-                          {/* Password with Eye Reveal & Copy */}
-                          <td className="p-3.5">
-                            <div className="flex items-center gap-1.5">
-                              {u.plainPassword ? (
-                                <>
-                                  <span className="font-mono text-xs px-2 py-1 rounded bg-slate-950 border border-slate-700/80 text-slate-200 select-all font-semibold tracking-wider">
-                                    {revealedPasswords[u.id] ? u.plainPassword : '••••••••'}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleRevealPassword(u.id)}
-                                    className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition cursor-pointer"
-                                    title={revealedPasswords[u.id] ? "Hide password" : "Show password"}
-                                  >
-                                    {revealedPasswords[u.id] ? <EyeOff className="w-3.5 h-3.5 text-[#1877F2]" /> : <Eye className="w-3.5 h-3.5" />}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCopyPassword(u.plainPassword || '', u.username)}
-                                    className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded transition cursor-pointer"
-                                    title="Copy password"
-                                  >
-                                    <Copy className="w-3.5 h-3.5" />
-                                  </button>
-                                </>
-                              ) : (
-                                <span className="text-[11px] text-slate-500 italic">
-                                  Encrypted
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="p-3.5">
-                            <span className="font-mono font-bold text-emerald-400 text-sm">
-                              Rs. {u.walletBalance.toLocaleString()} PKR
-                            </span>
-                          </td>
-                          <td className="p-3.5 text-slate-400">
-                            {u.ordersCount || 0} orders ({u.totalAccountsBought || 0} IDs)
-                          </td>
-                          <td className="p-3.5 text-slate-400 text-[11px] whitespace-nowrap">
-                            <div className="font-semibold text-slate-300">
-                              {new Date(u.createdAt).toLocaleDateString()}
-                            </div>
-                            <div className="text-[10px] text-slate-500">
-                              {new Date(u.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </div>
-                          </td>
-                          <td className="p-3.5 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {/* Add Balance */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setBalanceModalUser(u);
-                                  setAdjustMode('add');
-                                  setAdjustAmount(120);
-                                  setAdjustReason('WhatsApp screenshot verified');
-                                }}
-                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow-sm transition flex items-center gap-1 cursor-pointer"
-                                title="Add Funds to User"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>Add</span>
-                              </button>
-
-                              {/* Deduct Balance */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setBalanceModalUser(u);
-                                  setAdjustMode('deduct');
-                                  setAdjustAmount(24);
-                                  setAdjustReason('Admin balance deduction');
-                                }}
-                                className="px-2.5 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                                title="Deduct balance from this user"
-                              >
-                                <Minus className="w-3.5 h-3.5" />
-                                <span>Deduct</span>
-                              </button>
-
-                              {/* Change Password */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPasswordModalUser(u);
-                                  setAdminNewPasswordInput('');
-                                }}
-                                className="px-2.5 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                                title="Change User Password"
-                              >
-                                <KeyRound className="w-3.5 h-3.5" />
-                                <span>Password</span>
-                              </button>
-
-                              {/* Send Direct Message */}
-                              <button
-                                type="button"
-                                onClick={() => handleOpenSendMessageModal(u)}
-                                className="px-2.5 py-1.5 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                                title="Send Message to this User"
-                              >
-                                <Mail className="w-3.5 h-3.5" />
-                                <span>Message</span>
-                              </button>
-
-                              {/* Delete Account */}
-                              <button
-                                type="button"
-                                onClick={() => setDeleteUserModal(u)}
-                                className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg border border-transparent hover:border-rose-500/20 transition cursor-pointer"
-                                title="Delete User Account"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-          </div>
-        )}
-
-        {/* TAB 3: MANAGE STOCK & PRICE */}
+        {/* TAB 2: MANAGE STOCK & PRICE WITH SEPARATE SIMPLE & VERIFIED CATEGORIES */}
         {activeTab === 'stock' && (
           <div className="space-y-6">
             
-            {/* Price Edit Box */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg">
-              <h3 className="text-sm font-bold text-white mb-2">Set Price per Facebook ID</h3>
-              <form onSubmit={handleUpdatePrice} className="flex items-center gap-3 max-w-sm">
-                <div className="relative flex-1">
-                  <span className="absolute left-3.5 top-2.5 text-xs font-bold text-slate-500">Rs.</span>
-                  <input
-                    type="number"
-                    min={1}
-                    required
-                    value={priceInput}
-                    onChange={(e) => setPriceInput(Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-3 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-[#1877F2]"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-[#1877F2] hover:bg-blue-600 text-white text-xs font-bold rounded-xl shadow-md cursor-pointer"
-                >
-                  Save Price
-                </button>
-              </form>
-              <p className="text-[11px] text-slate-500 mt-1.5">
-                Default: 12 PKR per ID. This changes the live price for all customers.
-              </p>
-            </div>
-
-            {/* Stock Addition Section: Individual vs Bulk */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+            {/* ADD STOCK CARD - EASY BULK WITH COOKIES & CATEGORY SELECTOR */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
                 <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-blue-400" />
-                    <span>Add Facebook Accounts to Stock</span>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-blue-400" />
+                    <span>Add Accounts to Stock (With Cookies)</span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Choose between adding an individual account with its cookie or pasting accounts in bulk.
+                    Select account category (Simple or Verified) and paste in bulk. Cookies are automatically detected!
                   </p>
                 </div>
 
-                {/* Mode Switcher */}
-                <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0 text-xs font-bold">
-                  <button
-                    type="button"
-                    onClick={() => setStockAddMode('individual')}
-                    className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
-                      stockAddMode === 'individual'
-                        ? 'bg-[#1877F2] text-white shadow-md'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <Cookie className="w-3.5 h-3.5" />
-                    <span>Single Account (Aleda)</span>
-                  </button>
+                {/* Mode Selector */}
+                <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
                   <button
                     type="button"
                     onClick={() => setStockAddMode('bulk')}
-                    className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
-                      stockAddMode === 'bulk'
-                        ? 'bg-[#1877F2] text-white shadow-md'
-                        : 'text-slate-400 hover:text-white'
+                    className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                      stockAddMode === 'bulk' ? 'bg-[#1877F2] text-white shadow-md' : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    <Layers className="w-3.5 h-3.5" />
-                    <span>Bulk Import</span>
+                    Bulk Import (Easy)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStockAddMode('individual')}
+                    className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                      stockAddMode === 'individual' ? 'bg-[#1877F2] text-white shadow-md' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Single Account
                   </button>
                 </div>
               </div>
 
-              {/* OPTION A: INDIVIDUAL ACCOUNT ENTRY (ALEDA) */}
-              {stockAddMode === 'individual' ? (
-                <form onSubmit={handleAddSingleStock} className="space-y-3">
+              {/* Category Picker (Simple vs Verified) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-300 block">
+                  Select Target Category:
+                </label>
+                <div className="grid grid-cols-2 gap-3 max-w-md">
+                  <button
+                    type="button"
+                    onClick={() => setStockAddCategory('simple')}
+                    className={`p-3 rounded-xl border text-left transition cursor-pointer flex items-center gap-3 ${
+                      stockAddCategory === 'simple'
+                        ? 'bg-blue-600/20 border-blue-500 text-white shadow-sm ring-1 ring-blue-500/50'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs">
+                      FB
+                    </div>
+                    <div>
+                      <span className="block text-xs font-bold text-white">Simple Accounts</span>
+                      <span className="text-[10px] text-slate-400">Standard UID:Password accounts</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStockAddCategory('verified')}
+                    className={`p-3 rounded-xl border text-left transition cursor-pointer flex items-center gap-3 ${
+                      stockAddCategory === 'verified'
+                        ? 'bg-indigo-600/20 border-cyan-400 text-white shadow-sm ring-1 ring-cyan-400/50'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-cyan-500 text-white flex items-center justify-center font-bold text-xs">
+                      <BadgeCheck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="block text-xs font-bold text-white flex items-center gap-1">
+                        <span>Verified Accounts</span>
+                        <Star className="w-3 h-3 text-cyan-400 fill-cyan-400" />
+                      </span>
+                      <span className="text-[10px] text-slate-400">High trust VIP verified accounts</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* OPTION 1: BULK INPUT WITH LIVE PARSER */}
+              {stockAddMode === 'bulk' ? (
+                <form onSubmit={handleAddStock} className="space-y-4">
+                  <div>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-1.5">
+                      <label className="text-xs font-semibold text-slate-300">
+                        Paste Accounts in Bulk (Supports any delimiter: <code className="text-blue-400 font-bold">:</code>, <code className="text-cyan-400 font-bold">|</code>, <code className="text-amber-400 font-bold">----</code>, multi-line blocks, or JSON)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold rounded-lg border border-slate-700 cursor-pointer transition flex items-center gap-1.5 shrink-0">
+                          <Upload className="w-3.5 h-3.5 text-blue-400" />
+                          <span>Upload File (.txt/.csv)</span>
+                          <input
+                            type="file"
+                            accept=".txt,.csv,.json"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onload = (event) => {
+                                  const content = event.target?.result;
+                                  if (typeof content === 'string') {
+                                    setPasteStockText(content);
+                                    showToast('File Loaded', `Loaded ${file.name}. Accounts detected and ready below!`, 'success');
+                                  }
+                                };
+                                reader.readAsText(file);
+                              }
+                            }}
+                          />
+                        </label>
+                        {pasteStockText && (
+                          <button
+                            type="button"
+                            onClick={() => setPasteStockText('')}
+                            className="text-[11px] text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                          >
+                            Clear
+                          </button>
+                        )}
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          {pasteStockText.split('\n').filter(l => l.trim()).length} lines
+                        </span>
+                      </div>
+                    </div>
+                    <textarea
+                      rows={6}
+                      required
+                      value={pasteStockText}
+                      onChange={(e) => setPasteStockText(e.target.value)}
+                      placeholder={`100089238472:SecretPass123:c_user=100089238472;xs=2%3Aabc...;datr=xyz\n100089238473|AnotherPass456|c_user=100089238473;xs=def\n100089238474----AlphaBravo789----c_user=100089238474\n100089238475:NoCookiePass`}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-[#1877F2]"
+                    />
+                  </div>
+
+                  {/* Smart Live Parsing Preview Indicator */}
+                  {parsedBulkPreview.length > 0 && (
+                    <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-emerald-400 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          <span>Detected {parsedBulkPreview.length} accounts ready to add:</span>
+                        </span>
+                        <span className="text-[11px] text-amber-300 font-medium">
+                          {parsedBulkPreview.filter(p => p.hasCookie).length} with cookies attached 🍪
+                        </span>
+                      </div>
+                      <div className="max-h-36 overflow-y-auto space-y-1 font-mono text-[11px]">
+                        {parsedBulkPreview.slice(0, 5).map((p, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-1.5 bg-slate-900 rounded border border-slate-800">
+                            <span className="text-white font-bold">{p.uid} : ••••••••</span>
+                            {p.hasCookie ? (
+                              <span className="text-[10px] text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30">
+                                Cookie Detected
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-500">No Cookie</span>
+                            )}
+                          </div>
+                        ))}
+                        {parsedBulkPreview.length > 5 && (
+                          <div className="text-[10px] text-slate-500 text-center py-0.5">
+                            ...and {parsedBulkPreview.length - 5} more accounts
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end pt-1">
+                    <button
+                      type="submit"
+                      disabled={isAddingStock || parsedBulkPreview.length === 0}
+                      className="px-6 py-2.5 bg-[#1877F2] hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 flex items-center gap-2 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>
+                        {isAddingStock ? 'Adding to Stock...' : `Add ${parsedBulkPreview.length || 0} ${stockAddCategory === 'verified' ? 'Verified' : 'Simple'} Accounts`}
+                      </span>
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                /* OPTION 2: SINGLE ACCOUNT ENTRY */
+                <form onSubmit={handleAddSingleStock} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-slate-300">Facebook UID *</label>
@@ -2275,7 +2207,7 @@ export const AdminPortal: React.FC = () => {
                         value={singleUid}
                         onChange={(e) => setSingleUid(e.target.value)}
                         placeholder="e.g. 100089238472"
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-[#1877F2]"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-[#1877F2]"
                       />
                     </div>
                     <div className="space-y-1">
@@ -2286,139 +2218,182 @@ export const AdminPortal: React.FC = () => {
                         value={singlePassword}
                         onChange={(e) => setSinglePassword(e.target.value)}
                         placeholder="e.g. Pass123@#$"
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-[#1877F2]"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-[#1877F2]"
                       />
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                        <Cookie className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Account Cookie (Optional / Recommended)</span>
-                      </label>
-                      <span className="text-[11px] text-slate-500">Only copied by customer, never shown publicly</span>
-                    </div>
+                    <label className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                      <Cookie className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Account Cookie (Optional / Recommended)</span>
+                    </label>
                     <textarea
                       rows={3}
                       value={singleCookie}
                       onChange={(e) => setSingleCookie(e.target.value)}
-                      placeholder="Paste c_user=100089...; xs=... or full JSON / Netscape cookie string here"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-amber-200/90 font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                      placeholder="Paste c_user=100089...; xs=... or JSON cookie here"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-amber-200/90 font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500"
                     />
                   </div>
 
-                  <div className="flex items-center justify-end pt-1">
+                  <div className="flex justify-end pt-1">
                     <button
                       type="submit"
                       disabled={isAddingStock || !singleUid.trim() || !singlePassword.trim()}
-                      className="px-5 py-2.5 bg-[#1877F2] hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 flex items-center gap-1.5 cursor-pointer"
+                      className="px-6 py-2.5 bg-[#1877F2] hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer"
                     >
                       <Plus className="w-4 h-4" />
-                      <span>{isAddingStock ? 'Adding Account...' : 'Add Account with Cookie to Stock'}</span>
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                /* OPTION B: BULK IMPORT */
-                <form onSubmit={handleAddStock} className="space-y-3">
-                  <div>
-                    <p className="text-xs text-slate-400 mb-2">
-                      Paste multiple accounts in <code className="text-blue-400 font-bold">UID:Password</code> or <code className="text-amber-400 font-bold">UID:Password:Cookie</code> format (or separated by <code className="text-emerald-400 font-bold">|</code>).
-                    </p>
-                    <textarea
-                      rows={6}
-                      required
-                      value={pasteStockText}
-                      onChange={(e) => setPasteStockText(e.target.value)}
-                      placeholder={`100089238472:SecretPass123:c_user=100089238472;xs=2%3Aabc...
-100089238473:AnotherPass456
-100089238474:AlphaBravo789:datr=xyz...;c_user=100089238474`}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-[#1877F2]"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-400">
-                      Lines entered: <strong className="text-white">{pasteStockText.split('\n').filter(l => l.trim()).length}</strong>
-                    </span>
-                    <button
-                      type="submit"
-                      disabled={isAddingStock || !pasteStockText.trim()}
-                      className="px-5 py-2.5 bg-[#1877F2] hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>{isAddingStock ? 'Adding to Stock...' : 'Add Bulk to Stock'}</span>
+                      <span>Add Single {stockAddCategory === 'verified' ? 'Verified' : 'Simple'} Account</span>
                     </button>
                   </div>
                 </form>
               )}
             </div>
 
-            {/* Current Stock Table */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* INVENTORY TABLE & COPY UIDS BUTTONS */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-3 border-b border-slate-800">
                 <div>
-                  <h3 className="text-sm font-bold text-white">Current Stock Inventory ({stock.length})</h3>
-                  <span className="text-xs text-slate-400">
-                    <strong className="text-emerald-400">{availableStockCount}</strong> Available • <strong className="text-blue-400">{soldStockCount}</strong> Sold
-                  </span>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>Stock Inventory</span>
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-bold">
+                      {filteredStock.length} Shown / {stock.length} Total
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Filter by category or status, and easily copy UIDs in 1-click!
+                  </p>
                 </div>
 
+                {/* 1-CLICK COPY UIDS BUTTONS (REQUESTED FEATURE) */}
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setStockFilter('all')}
-                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                        stockFilter === 'all' ? 'bg-[#1877F2] text-white' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      All ({stock.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStockFilter('available')}
-                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                        stockFilter === 'available' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Available ({availableStockCount})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStockFilter('sold')}
-                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                        stockFilter === 'sold' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Sold ({soldStockCount})
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyUids('available')}
+                    className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                    title="Copy UIDs of available stock"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Available UIDs</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-emerald-950/60 text-emerald-300 text-[10px]">
+                      {stock.filter(s => s.status === 'available' && (stockFilterCategory === 'all' || (s.category || 'simple') === stockFilterCategory)).length}
+                    </span>
+                  </button>
 
-                  {soldStockCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleClearAllSoldStock}
-                      className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-                      title="Delete all sold accounts from database"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Delete All Sold ({soldStockCount})</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleCopyUids('sold')}
+                    className="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                    title="Copy UIDs of sold accounts"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Sold UIDs</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-rose-950/60 text-rose-300 text-[10px]">
+                      {stock.filter(s => s.status === 'sold' && (stockFilterCategory === 'all' || (s.category || 'simple') === stockFilterCategory)).length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleCopyUids('all')}
+                    className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                    title="Copy all UIDs in current view"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy All UIDs</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-blue-950/60 text-blue-300 text-[10px]">
+                      {stock.filter(s => stockFilterCategory === 'all' || (s.category || 'simple') === stockFilterCategory).length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleClearAllSoldStock}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white border border-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Clear Sold</span>
+                  </button>
                 </div>
               </div>
 
-              {stock.length === 0 ? (
-                <div className="text-center py-8 text-xs text-slate-500">
-                  Stock is empty. Add accounts individually or in bulk above to restock.
+              {/* Filters */}
+              <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                {/* Category Filter */}
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setStockFilterCategory('all')}
+                    className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
+                      stockFilterCategory === 'all' ? 'bg-[#1877F2] text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    All Categories
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStockFilterCategory('simple')}
+                    className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
+                      stockFilterCategory === 'simple' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Simple ({stock.filter(s => (s.category || 'simple') === 'simple').length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStockFilterCategory('verified')}
+                    className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
+                      stockFilterCategory === 'verified' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Verified ({stock.filter(s => s.category === 'verified').length})
+                  </button>
+                </div>
+
+                {/* Status Filter */}
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setStockFilterStatus('all')}
+                    className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
+                      stockFilterStatus === 'all' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    All Status
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStockFilterStatus('available')}
+                    className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
+                      stockFilterStatus === 'available' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Available
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStockFilterStatus('sold')}
+                    className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
+                      stockFilterStatus === 'sold' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Sold
+                  </button>
+                </div>
+              </div>
+
+              {/* Table */}
+              {filteredStock.length === 0 ? (
+                <div className="text-center py-10 text-xs text-slate-500">
+                  No accounts found matching this filter.
                 </div>
               ) : (
-                <div className="max-h-80 overflow-y-auto border border-slate-800 rounded-xl">
+                <div className="max-h-96 overflow-y-auto border border-slate-800 rounded-xl">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-950 text-slate-400 sticky top-0">
                       <tr>
+                        <th className="p-3">Category</th>
                         <th className="p-3">UID</th>
                         <th className="p-3">Password</th>
                         <th className="p-3">Cookie</th>
@@ -2428,15 +2403,18 @@ export const AdminPortal: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800 text-slate-300 font-mono">
-                      {stock
-                        .filter(item => {
-                          if (stockFilter === 'available') return item.status === 'available';
-                          if (stockFilter === 'sold') return item.status === 'sold';
-                          return true;
-                        })
-                        .map((item) => (
+                      {filteredStock.map((item) => (
                         <tr key={item.id} className="hover:bg-slate-800/40">
-                          <td className="p-3 text-white font-bold">{item.uid}</td>
+                          <td className="p-3">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              item.category === 'verified'
+                                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                                : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                            }`}>
+                              {item.category === 'verified' ? 'Verified' : 'Simple'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-white font-bold select-all">{item.uid}</td>
                           <td className="p-3 text-slate-400">••••••••</td>
                           <td className="p-3">
                             {item.cookie ? (
@@ -2446,9 +2424,10 @@ export const AdminPortal: React.FC = () => {
                                   <span>Attached</span>
                                 </span>
                                 <button
+                                  type="button"
                                   onClick={() => {
                                     navigator.clipboard.writeText(item.cookie!);
-                                    showToast('Cookie Copied', `Cookie for ID ${item.uid} copied!`, 'info');
+                                    showToast('Cookie Copied', `Cookie for UID ${item.uid} copied!`, 'info');
                                   }}
                                   className="text-amber-400 hover:text-amber-300 p-1 cursor-pointer transition"
                                   title="Copy Cookie"
@@ -2461,28 +2440,22 @@ export const AdminPortal: React.FC = () => {
                             )}
                           </td>
                           <td className="p-3">
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${
-                                item.status === 'available'
-                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                  : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                              }`}
-                            >
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${
+                              item.status === 'available'
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            }`}>
                               {item.status}
                             </span>
                           </td>
                           <td className="p-3 text-slate-400 text-[11px]">
-                            {item.status === 'sold' ? (
-                              <span>@{item.soldToUsername || 'Customer'}</span>
-                            ) : (
-                              <span className="text-slate-600">—</span>
-                            )}
+                            {item.status === 'sold' ? `@${item.soldToUsername || 'Customer'}` : '—'}
                           </td>
                           <td className="p-3 text-right">
                             <button
+                              type="button"
                               onClick={() => handleDeleteStockItem(item.id, item.status)}
                               className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer transition"
-                              title={item.status === 'sold' ? 'Delete Sold Account Record' : 'Remove Account'}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -2498,532 +2471,403 @@ export const AdminPortal: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 4: ANNOUNCEMENTS & MARQUEE TICKER */}
+        {/* TAB 3: CUSTOMER FEEDBACK & SUGGESTIONS */}
+        {activeTab === 'feedback' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <MessageSquarePlus className="w-5 h-5 text-purple-400" />
+                  <span>Customer Suggestions, Reports & Feature Requests</span>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">
+                    {feedbacks.length} Total
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Customers submit feature ideas, price questions, or problem reports through the website.
+                </p>
+              </div>
+            </div>
+
+            {feedbacks.length === 0 ? (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-10 text-center text-slate-500 text-xs">
+                No customer suggestions or reports submitted yet.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {feedbacks.map((fb) => (
+                  <div
+                    key={fb.id}
+                    className={`bg-slate-900/90 border rounded-2xl p-5 shadow-lg space-y-3 ${
+                      fb.status === 'new' ? 'border-purple-500/40 bg-purple-500/[0.02]' : 'border-slate-800'
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                            fb.type === 'feature_request' 
+                              ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                              : fb.type === 'pricing_issue'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                : fb.type === 'bug_report'
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                  : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                          }`}>
+                            {fb.type.replace('_', ' ')}
+                          </span>
+
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${
+                            fb.status === 'new'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              : fb.status === 'reviewed'
+                                ? 'bg-blue-500/20 text-blue-300'
+                                : 'bg-slate-800 text-slate-400'
+                          }`}>
+                            {fb.status}
+                          </span>
+
+                          <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {new Date(fb.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+
+                        <h4 className="text-sm font-bold text-white pt-1">
+                          {fb.subject}
+                        </h4>
+                        <div className="text-xs text-slate-400">
+                          Customer: <strong className="text-white">@{fb.username}</strong>
+                          {fb.email && <span className="ml-2 text-slate-400 font-mono">({fb.email})</span>}
+                        </div>
+                      </div>
+
+                      {/* Status Buttons */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {fb.status !== 'resolved' && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateFeedbackStatus(fb.id, 'resolved')}
+                            className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-lg text-xs font-bold transition cursor-pointer"
+                          >
+                            Mark Resolved
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteFeedback(fb.id)}
+                          className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-lg cursor-pointer transition"
+                          title="Delete Feedback"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-200 leading-relaxed whitespace-pre-line">
+                      {fb.message}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 4: USERS & BALANCE */}
+        {activeTab === 'users' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-white">Customer Accounts Management</h3>
+                <p className="text-xs text-slate-400">
+                  Search any user when they send a payment screenshot on WhatsApp to instantly credit their wallet.
+                </p>
+              </div>
+              <div className="relative min-w-[260px]">
+                <Search className="w-4 h-4 absolute left-3.5 top-2.5 text-slate-500" />
+                <input
+                  type="text"
+                  value={userSearchQuery}
+                  onChange={(e) => setUserSearchQuery(e.target.value)}
+                  placeholder="Search by username or email..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#1877F2]"
+                />
+              </div>
+            </div>
+
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-lg">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400">
+                    <tr>
+                      <th className="p-3.5">Customer</th>
+                      <th className="p-3.5">Email</th>
+                      <th className="p-3.5">Wallet Balance</th>
+                      <th className="p-3.5">Purchases</th>
+                      <th className="p-3.5 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 text-slate-300">
+                    {usersList
+                      .filter(u => !userSearchQuery || u.username.toLowerCase().includes(userSearchQuery.toLowerCase()))
+                      .map((u) => (
+                      <tr key={u.id} className="hover:bg-slate-800/40">
+                        <td className="p-3.5 font-bold text-white">@{u.username}</td>
+                        <td className="p-3.5 text-slate-400">{u.email}</td>
+                        <td className="p-3.5">
+                          <span className="font-mono font-bold text-emerald-400 text-sm">
+                            Rs. {u.walletBalance.toLocaleString()} PKR
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-slate-400">{u.ordersCount || 0} orders</td>
+                        <td className="p-3.5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBalanceModalUser(u);
+                                setAdjustMode('add');
+                                setAdjustAmount(120);
+                                setAdjustReason('WhatsApp payment verified');
+                              }}
+                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition cursor-pointer"
+                            >
+                              + Add
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBalanceModalUser(u);
+                                setAdjustMode('deduct');
+                                setAdjustAmount(24);
+                                setAdjustReason('Admin balance deduction');
+                              }}
+                              className="px-2.5 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded-lg text-xs font-bold transition cursor-pointer"
+                            >
+                              Deduct
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenMessageModal(u)}
+                              className="px-2.5 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                              title={`Send Direct Message to @${u.username}`}
+                            >
+                              <Mail className="w-3.5 h-3.5" />
+                              <span>Message</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPasswordModalUser(u);
+                                setAdminNewPasswordInput('');
+                                setShowModalPassword(false);
+                              }}
+                              className="px-2.5 py-1.5 bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                              title={`Change Password for @${u.username}`}
+                            >
+                              <KeyRound className="w-3.5 h-3.5" />
+                              <span>Password</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteUserModal(u)}
+                              className="p-1.5 bg-rose-600/10 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/20 rounded-lg transition cursor-pointer"
+                              title={`Delete Account @${u.username}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: ANNOUNCEMENTS & MARQUEE */}
         {activeTab === 'announcements' && (
-          <div className="space-y-6 animate-fade-in">
-            
-            {/* 1. TOP MARQUEE TICKER (BLACK PATTI) SETTINGS CARD */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
+          <div className="space-y-6">
+            {/* MARQUEE CARD */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
                     <Megaphone className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-white flex items-center gap-2">
-                      Marquee Announcement Ticker
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-amber-400 border border-amber-500/30 font-semibold uppercase">
-                        Black Strip on All Pages
-                      </span>
-                    </h3>
-                    <p className="text-xs text-slate-400">
-                      Displays a continuous moving banner from right-to-left at the top of Login, Signup, Store, & User Dashboard.
-                    </p>
+                    <h3 className="text-base font-bold text-white">Marquee Announcement Ticker</h3>
+                    <p className="text-xs text-slate-400">Updates live across all visitor screens instantly</p>
                   </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setMarqueeSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                      marqueeSettings.enabled
-                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <div className={`w-2 h-2 rounded-full ${marqueeSettings.enabled ? 'bg-white animate-pulse' : 'bg-slate-500'}`} />
-                    <span>{marqueeSettings.enabled ? 'Ticker Active & Visible' : 'Ticker Disabled'}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Form & Controls */}
-              <form onSubmit={handleSaveMarquee} className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-semibold text-slate-300">
-                      Announcement Ticker Text (Right-to-Left Continuous Scroll)
-                    </label>
-                    <span className="text-[11px] text-slate-500">
-                      {marqueeSettings.text.length} characters
-                    </span>
-                  </div>
-                  <textarea
-                    rows={2}
-                    required
-                    value={marqueeSettings.text}
-                    onChange={(e) => setMarqueeSettings(prev => ({ ...prev, text: e.target.value }))}
-                    placeholder="Enter announcement text to move across the top of all pages..."
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-medium"
-                  />
-                </div>
-
-                {/* Quick Presets */}
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="text-slate-400 text-[11px] font-semibold">Quick Presets:</span>
-                  <button
-                    type="button"
-                    onClick={() => setMarqueeSettings(prev => ({
-                      ...prev,
-                      text: '⚡ Welcome to FBStore! Instant Facebook Accounts Delivery • 24/7 JazzCash & EasyPaisa Deposit • Guaranteed Fresh UIDs'
-                    }))}
-                    className="px-2.5 py-1 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-lg text-[11px] text-slate-300 hover:text-white transition cursor-pointer"
-                  >
-                    Default Welcome
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMarqueeSettings(prev => ({
-                      ...prev,
-                      text: '🔥 Fresh Stock Just Uploaded! Buy Facebook Accounts with Instant Password Handover • Safe & Verified UIDs'
-                    }))}
-                    className="px-2.5 py-1 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-lg text-[11px] text-slate-300 hover:text-white transition cursor-pointer"
-                  >
-                    Fresh Stock Alert
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMarqueeSettings(prev => ({
-                      ...prev,
-                      text: '💳 Instant Deposit: Submit JazzCash / EasyPaisa screenshot for immediate wallet balance credit! Contact WhatsApp for support.'
-                    }))}
-                    className="px-2.5 py-1 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-lg text-[11px] text-slate-300 hover:text-white transition cursor-pointer"
-                  >
-                    Deposit Notice
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                      Scroll Speed (Animation Pace)
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(['slow', 'normal', 'fast'] as const).map((spd) => (
-                        <button
-                          key={spd}
-                          type="button"
-                          onClick={() => setMarqueeSettings(prev => ({ ...prev, speed: spd }))}
-                          className={`py-2 text-xs font-bold rounded-xl border transition cursor-pointer capitalize ${
-                            marqueeSettings.speed === spd
-                              ? 'bg-amber-600/20 border-amber-500 text-amber-300'
-                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          {spd === 'normal' ? 'Normal (Standard)' : spd}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-semibold text-slate-300">
-                        Badge Label
-                      </label>
-                      <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-amber-400 font-semibold">
-                        <input
-                          type="checkbox"
-                          checked={marqueeSettings.showBadge !== false}
-                          onChange={(e) => setMarqueeSettings(prev => ({ ...prev, showBadge: e.target.checked }))}
-                          className="w-3.5 h-3.5 rounded text-amber-500 bg-slate-950 border-slate-700"
-                        />
-                        <span>Enable Badge</span>
-                      </label>
-                    </div>
-                    <input
-                      type="text"
-                      disabled={marqueeSettings.showBadge === false}
-                      value={marqueeSettings.badgeText || 'Announcement'}
-                      onChange={(e) => setMarqueeSettings(prev => ({ ...prev, badgeText: e.target.value }))}
-                      placeholder="e.g. Announcement, Notice, Alert"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
-                    />
-                  </div>
-                </div>
-
-                {/* Marquee Target Audience */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Marquee Target Audience (Who Sees This Top Ticker)
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800 mb-2">
-                    <button
-                      type="button"
-                      onClick={() => setMarqueeSettings(prev => ({ ...prev, targetType: 'all', targetUserId: undefined, targetUsername: undefined }))}
-                      className={`py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
-                        marqueeSettings.targetType !== 'user'
-                          ? 'bg-amber-600 text-white shadow-sm'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      All Users & Visitors (Global)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMarqueeSettings(prev => ({ ...prev, targetType: 'user' }))}
-                      className={`py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
-                        marqueeSettings.targetType === 'user'
-                          ? 'bg-purple-600 text-white shadow-sm'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Specific Single User
-                    </button>
-                  </div>
-
-                  {marqueeSettings.targetType === 'user' && (
-                    <div className="animate-fade-in">
-                      <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                        Select Target User for Marquee
-                      </label>
-                      <select
-                        value={marqueeSettings.targetUserId || ''}
-                        onChange={(e) => {
-                          const uid = e.target.value;
-                          const u = usersList.find(usr => usr.id === uid);
-                          setMarqueeSettings(prev => ({
-                            ...prev,
-                            targetUserId: uid,
-                            targetUsername: u?.username || ''
-                          }));
-                        }}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
-                      >
-                        <option value="">-- Choose User for this Private Marquee --</option>
-                        {usersList.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            @{u.username} ({u.email})
-                          </option>
-                        ))}
-                      </select>
-                      <p className="text-[11px] text-purple-300 mt-1">
-                        ℹ️ This top marquee strip will only appear on the screen of the selected user.
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* LIVE PREVIEW BOX */}
-                <div className="pt-2">
-                  <span className="block text-[11px] font-bold text-slate-400 mb-1.5 uppercase tracking-wide">
-                    Live Real-Time Preview (As Visitors See It):
-                  </span>
-                  <div className="rounded-xl overflow-hidden border border-amber-500/30 bg-slate-950 shadow-inner p-2.5 flex items-center">
-                    {marqueeSettings.showBadge !== false && (
-                      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300 text-[10px] font-bold mr-3 shrink-0">
-                        <Megaphone className="w-3 h-3 text-amber-400" />
-                        <span>{marqueeSettings.badgeText || 'Announcement'}</span>
-                      </div>
-                    )}
-                    <div className="overflow-hidden whitespace-nowrap flex-1 text-xs text-slate-200">
-                      <span className="inline-block animate-marquee-normal font-medium">
-                        {marqueeSettings.text || 'Announcement text preview will scroll here...'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <button
-                    type="submit"
-                    disabled={isSavingMarquee}
-                    className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-amber-600/30 flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
-                  >
-                    {isSavingMarquee ? (
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <>
-                        <Check className="w-4 h-4" />
-                        <span>Save & Update Marquee Live</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {/* 1.1 NEW USER WELCOME ANNOUNCEMENT SETTINGS */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
-                    <Sparkles className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-white flex items-center gap-2">
-                      New User Registration Welcome Message
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-emerald-400 border border-emerald-500/30 font-semibold uppercase">
-                        Shown Once On Signup
-                      </span>
-                    </h3>
-                    <p className="text-xs text-slate-400">
-                      Automatically greets every new registered user with a personalized popup dialog and username.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setWelcomeSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                      welcomeSettings.enabled
-                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <div className={`w-2 h-2 rounded-full ${welcomeSettings.enabled ? 'bg-white animate-pulse' : 'bg-slate-500'}`} />
-                    <span>{welcomeSettings.enabled ? 'Auto-Greeting Active' : 'Greeting Disabled'}</span>
-                  </button>
-                </div>
-              </div>
-
-              <form onSubmit={handleSaveWelcomeSettings} className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-semibold text-slate-300">
-                      Welcome Dialog Title Template
-                    </label>
-                    <span className="text-[11px] text-amber-400 font-mono">Use {'{username}'} for user's name</span>
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    value={welcomeSettings.title}
-                    onChange={(e) => setWelcomeSettings(prev => ({ ...prev, title: e.target.value }))}
-                    placeholder="e.g. Welcome to FBStore, {username}! 🎉"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-semibold text-slate-300">
-                      Welcome Dialog Message Template
-                    </label>
-                    <span className="text-[11px] text-slate-500">Supports multi-line text</span>
-                  </div>
-                  <textarea
-                    rows={4}
-                    required
-                    value={welcomeSettings.message}
-                    onChange={(e) => setWelcomeSettings(prev => ({ ...prev, message: e.target.value }))}
-                    placeholder="Enter welcome message for new users. Use {username} anywhere in the text..."
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-emerald-500 font-medium"
-                  />
-                </div>
-
-                {/* Quick Presets for Welcome Message */}
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="text-slate-400 text-[11px] font-semibold">Presets:</span>
-                  <button
-                    type="button"
-                    onClick={() => setWelcomeSettings(prev => ({
-                      ...prev,
-                      title: 'Welcome to FBStore, {username}! 🎉',
-                      message: 'Assalam-o-Alaikum {username}! Welcome to FBStore.\n\nYour account has been registered successfully with Rs. 0 wallet balance. You can deposit balance via JazzCash or EasyPaisa and purchase verified Facebook accounts with instant delivery.\n\nThank you for choosing us!'
-                    }))}
-                    className="px-2.5 py-1 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-lg text-[11px] text-slate-300 hover:text-white transition cursor-pointer"
-                  >
-                    Warm Greeting (Default)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setWelcomeSettings(prev => ({
-                      ...prev,
-                      title: 'Welcome Aboard @{username}! 🚀',
-                      message: 'Hey {username}! Welcome to Pakistan\'s premier Facebook IDs platform.\n\nEnjoy guaranteed fresh UID:Password handover and fast EasyPaisa/JazzCash approvals. If you need any assistance, reach out directly to Admin via WhatsApp.'
-                    }))}
-                    className="px-2.5 py-1 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-lg text-[11px] text-slate-300 hover:text-white transition cursor-pointer"
-                  >
-                    Marketplace Intro
-                  </button>
-                </div>
-
-                {/* Live Preview */}
-                <div className="p-3.5 bg-slate-950/80 border border-emerald-500/30 rounded-xl space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
-                      Preview for @arslan481
-                    </span>
-                    <span className="text-xs font-bold text-white">
-                      {(welcomeSettings.title || '').replace(/{username}/gi, 'arslan481')}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 whitespace-pre-line leading-relaxed">
-                    {(welcomeSettings.message || '').replace(/{username}/gi, 'arslan481')}
-                  </p>
-                </div>
-
-                <div className="flex justify-end pt-1">
-                  <button
-                    type="submit"
-                    disabled={isSavingWelcome}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
-                  >
-                    {isSavingWelcome ? (
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <>
-                        <Check className="w-4 h-4" />
-                        <span>Save Welcome Message Template</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {/* 2. SITE & SCREEN NOTICES (VISUAL CARDS & DIALOGS) */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    Site Notices & Screen Alerts
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-600/20 text-blue-400 border border-blue-500/30 font-bold">
-                      {announcementsList.length} Total
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Custom visual banners or popup screen modals for all users or a specific single user.
-                  </p>
                 </div>
 
                 <button
                   type="button"
-                  onClick={handleOpenCreateAnnouncementModal}
-                  className="px-4 py-2 bg-[#1877F2] hover:bg-blue-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 flex items-center gap-1.5 transition cursor-pointer self-start sm:self-auto"
+                  onClick={() => setMarqueeSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                    marqueeSettings.enabled ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'
+                  }`}
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>New Announcement</span>
+                  {marqueeSettings.enabled ? 'Active' : 'Disabled'}
                 </button>
               </div>
 
-              {/* List of Announcements */}
-              {announcementsList.length === 0 ? (
-                <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-10 text-center space-y-3">
-                  <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 mx-auto">
-                    <Megaphone className="w-6 h-6" />
-                  </div>
-                  <h4 className="text-sm font-bold text-slate-300">No Announcements Created</h4>
-                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                    Create your first announcement to show notices, important updates, or alerts to users.
-                  </p>
+              <form onSubmit={handleSaveMarquee} className="space-y-4">
+                <textarea
+                  rows={2}
+                  required
+                  value={marqueeSettings.text}
+                  onChange={(e) => setMarqueeSettings(prev => ({ ...prev, text: e.target.value }))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
+                />
+
+                <div className="flex justify-end">
                   <button
-                    type="button"
-                    onClick={handleOpenCreateAnnouncementModal}
-                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
+                    type="submit"
+                    disabled={isSavingMarquee}
+                    className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-2 cursor-pointer"
                   >
-                    Create Now
+                    <Check className="w-4 h-4" />
+                    <span>Save & Update Marquee Live</span>
                   </button>
+                </div>
+              </form>
+            </div>
+
+            {/* SITE ANNOUNCEMENTS, PROMOTIONS & POPUP NOTICES */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>Site Announcements, Offers & Popup Alerts</span>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-black bg-blue-600/20 text-[#1877F2] border border-blue-500/30">
+                      {announcementsList.length} Total
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Broadcast promotional offers, critical alerts, maintenance notices, and modal popups to all users or specific accounts
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleOpenNewAnnouncement}
+                  className="px-4 py-2 bg-[#1877F2] hover:bg-blue-600 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 cursor-pointer shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Create New Announcement</span>
+                </button>
+              </div>
+
+              {/* Announcements List */}
+              {announcementsList.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-500 bg-slate-950/60 rounded-xl border border-slate-800 space-y-2">
+                  <Megaphone className="w-8 h-8 text-slate-600 mx-auto" />
+                  <p className="font-semibold text-slate-400">No site announcements created yet.</p>
+                  <p>Click "Create New Announcement" to post your first offer, deal alert, or popup notice.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {announcementsList.map((ann) => {
-                    const typeColors = {
-                      offer: 'border-amber-400/60 bg-amber-950/30 text-amber-300 font-bold',
-                      urgent: 'border-rose-500/40 bg-rose-950/20 text-rose-300',
-                      alert: 'border-rose-500/30 bg-rose-950/15 text-rose-300',
-                      warning: 'border-amber-500/30 bg-amber-950/15 text-amber-300',
-                      success: 'border-emerald-500/30 bg-emerald-950/15 text-emerald-300',
-                      info: 'border-blue-500/30 bg-blue-950/15 text-blue-300'
-                    }[ann.type] || 'border-slate-800 bg-slate-950 text-slate-300';
+                  {announcementsList.map(ann => {
+                    const isOffer = ann.type === 'offer';
+                    const isUrgent = ann.type === 'urgent' || ann.type === 'alert';
+                    const isWarning = ann.type === 'warning';
+                    const isSuccess = ann.type === 'success';
 
                     return (
                       <div
                         key={ann.id}
-                        className={`rounded-2xl border p-4 transition-all shadow-md ${
-                          ann.active ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-950/40 border-slate-800/50 opacity-60'
+                        className={`p-4 rounded-xl border transition-all ${
+                          ann.active
+                            ? isOffer
+                              ? 'bg-amber-950/20 border-amber-500/30'
+                              : isUrgent
+                              ? 'bg-rose-950/20 border-rose-500/30'
+                              : isWarning
+                              ? 'bg-orange-950/20 border-orange-500/30'
+                              : 'bg-slate-950/80 border-slate-800'
+                            : 'bg-slate-950/40 border-slate-800/60 opacity-60'
                         }`}
                       >
                         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                          <div className="flex-1 space-y-1.5">
+                          <div className="space-y-1.5 flex-1 min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               {/* Type Badge */}
-                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] uppercase tracking-wide border ${typeColors}`}>
-                                {ann.type === 'offer' ? 'Special Offer' : ann.type}
+                              <span
+                                className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider ${
+                                  isOffer
+                                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                    : isUrgent
+                                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                    : isWarning
+                                    ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                                    : isSuccess
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                    : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                                }`}
+                              >
+                                {ann.type || 'info'}
                               </span>
 
-                              {/* Target Badge */}
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                ann.targetType === 'user'
-                                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                                  : 'bg-slate-800 text-slate-300 border-slate-700'
-                              }`}>
-                                {ann.targetType === 'user' ? `Specific User: @${ann.targetUsername || ann.targetUserId}` : 'All Users (Global)'}
+                              {/* Target Audience Badge */}
+                              <span className="px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-slate-800 text-slate-300">
+                                {ann.targetType === 'all' ? 'All Users' : `@${ann.targetUsername || ann.targetUserId}`}
                               </span>
 
-                              {/* Frequency Badge */}
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${
-                                ann.frequency === 'once_only'
-                                  ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-                                  : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                              }`}>
-                                {ann.frequency === 'once_only' ? '1x Single Time' : '🔄 Every Refresh'}
-                              </span>
-
-                              {/* Popup badge */}
+                              {/* Popup Indicator */}
                               {ann.showAsPopup && (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                  Screen Popup Modal
+                                <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                  Popup Modal ({ann.frequency === 'once_only' ? 'Once Only' : 'Every Refresh'})
                                 </span>
                               )}
 
-                              {/* Active Status */}
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                ann.active ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-500'
-                              }`}>
-                                {ann.active ? 'Active' : 'Hidden'}
-                              </span>
-
-                              <span className="text-[11px] text-slate-500 ml-auto flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {new Date(ann.createdAt).toLocaleDateString()} {new Date(ann.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {/* Status Badge */}
+                              <span
+                                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                                  ann.active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-500'
+                                }`}
+                              >
+                                {ann.active ? 'Active' : 'Paused'}
                               </span>
                             </div>
 
-                            <h4 className="text-sm font-bold text-white">
-                              {ann.title}
-                            </h4>
-
-                            <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-line">
-                              {ann.message}
-                            </p>
+                            <h4 className="text-sm font-bold text-white break-words">{ann.title}</h4>
+                            <p className="text-xs text-slate-300 whitespace-pre-line break-words">{ann.message}</p>
+                            
+                            <span className="text-[10px] text-slate-500 block">
+                              Created: {new Date(ann.createdAt).toLocaleString()}
+                            </span>
                           </div>
 
-                          {/* Action Buttons */}
-                          <div className="flex items-center gap-1.5 self-end sm:self-start shrink-0">
+                          <div className="flex items-center gap-2 shrink-0">
                             <button
                               type="button"
                               onClick={() => handleToggleAnnouncementActive(ann)}
-                              className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition cursor-pointer ${
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                                 ann.active
-                                  ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/50'
-                                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                                  ? 'bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30'
+                                  : 'bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30'
                               }`}
-                              title={ann.active ? 'Hide Announcement' : 'Activate Announcement'}
                             >
-                              {ann.active ? 'Active' : 'Inactive'}
+                              {ann.active ? 'Pause' : 'Activate'}
                             </button>
-
                             <button
                               type="button"
-                              onClick={() => handleOpenEditAnnouncementModal(ann)}
-                              className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                              onClick={() => handleOpenEditAnnouncement(ann)}
+                              className="p-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer"
                               title="Edit Announcement"
                             >
-                              <Edit3 className="w-4 h-4" />
+                              <Edit3 className="w-3.5 h-3.5" />
                             </button>
-
                             <button
                               type="button"
                               onClick={() => handleDeleteAnnouncement(ann.id)}
-                              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                              className="p-2 rounded-xl text-xs font-bold bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30 transition cursor-pointer"
                               title="Delete Announcement"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
@@ -3033,184 +2877,408 @@ export const AdminPortal: React.FC = () => {
                 </div>
               )}
             </div>
-
           </div>
         )}
 
-        {/* TAB 5: DIRECT MESSAGES TO USERS */}
+        {/* TAB 6: MESSAGES */}
         {activeTab === 'messages' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
+          <div className="space-y-6">
+            {/* Header & Compose Action Bar */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold">
-                    <MessageSquare className="w-5 h-5" />
+                  <div className="w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-bold">
+                    <Mail className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-white flex items-center gap-2">
-                      Direct User Messages (User Dashboard Inbox)
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 font-bold">
-                        {sentMessagesList.length} Sent
-                      </span>
+                      Direct Customer Messages & User Broadcasts
                     </h3>
                     <p className="text-xs text-slate-400">
-                      Send official private messages or custom alerts that appear in the user's dashboard under "Admin Messages".
+                      Send official notices, instructions, or balance updates directly to any customer's account or broadcast to all registered users in real time.
                     </p>
                   </div>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => handleOpenSendMessageModal()}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 transition cursor-pointer self-start sm:self-auto"
+                  onClick={() => handleOpenMessageModal()}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-600/30 flex items-center gap-2 transition cursor-pointer self-start sm:self-auto shrink-0"
                 >
                   <Send className="w-4 h-4" />
-                  <span>Compose Message</span>
+                  <span>Compose New Message</span>
                 </button>
               </div>
 
-              {/* Messages History */}
-              {sentMessagesList.length === 0 ? (
-                <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-10 text-center space-y-3">
-                  <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 mx-auto">
-                    <Mail className="w-6 h-6" />
-                  </div>
-                  <h4 className="text-sm font-bold text-slate-300">No Direct Messages Sent Yet</h4>
-                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                    You can send private messages to any individual user from here or directly from the Customer Accounts table.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenSendMessageModal()}
-                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
-                  >
-                    Compose First Message
-                  </button>
+              {/* Message Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                  <span className="text-slate-500 block text-[11px]">Total Sent:</span>
+                  <strong className="text-white font-mono text-base">{sentMessagesList.length} Messages</strong>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {sentMessagesList.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-md"
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                        <div className="flex-1 space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                              To: @{msg.targetUsername || msg.userId}
-                            </span>
-                            {msg.priority && msg.priority !== 'normal' && (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 uppercase">
-                                {msg.priority}
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                  <span className="text-slate-500 block text-[11px]">Unread by Users:</span>
+                  <strong className="text-amber-400 font-mono text-base">
+                    {sentMessagesList.filter(m => !m.read).length} Unread
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                  <span className="text-slate-500 block text-[11px]">Direct User Messages:</span>
+                  <strong className="text-blue-400 font-mono text-base">
+                    {sentMessagesList.filter(m => m.userId !== 'all').length} Targeted
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                  <span className="text-slate-500 block text-[11px]">Broadcast to All:</span>
+                  <strong className="text-indigo-400 font-mono text-base">
+                    {sentMessagesList.filter(m => m.userId === 'all').length} Broadcasts
+                  </strong>
+                </div>
+              </div>
+
+              {/* Search filter */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3.5 top-2.5 text-slate-500" />
+                <input
+                  type="text"
+                  value={msgFilterSearch}
+                  onChange={(e) => setMsgFilterSearch(e.target.value)}
+                  placeholder="Filter messages by recipient username, title, or keyword..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Sent Messages List */}
+            {sentMessagesList.length === 0 ? (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 mx-auto">
+                  <Mail className="w-6 h-6" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-300">No Messages Sent Yet</h4>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  Click "Compose New Message" to reach out to any specific customer or broadcast an update to all registered users.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleOpenMessageModal()}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-lg transition cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send First Message</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {sentMessagesList
+                  .filter(m => {
+                    if (!msgFilterSearch.trim()) return true;
+                    const q = msgFilterSearch.toLowerCase();
+                    return (
+                      (m.targetUsername && m.targetUsername.toLowerCase().includes(q)) ||
+                      (m.title && m.title.toLowerCase().includes(q)) ||
+                      (m.message && m.message.toLowerCase().includes(q))
+                    );
+                  })
+                  .map((m) => {
+                    const isAll = m.userId === 'all';
+                    const isUrgent = m.priority === 'urgent' || m.priority === 'high';
+                    return (
+                      <div
+                        key={m.id}
+                        className="bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 sm:p-5 shadow-lg transition space-y-2.5"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            {isAll ? (
+                              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
+                                <Sparkles className="w-3 h-3 text-indigo-400" />
+                                <span>Broadcast (All Users)</span>
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 flex items-center gap-1">
+                                <Users className="w-3 h-3 text-blue-400" />
+                                <span>To @{m.targetUsername || m.userId}</span>
                               </span>
                             )}
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              msg.read ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
-                            }`}>
-                              {msg.read ? 'Seen by user' : 'Unread'}
-                            </span>
-                            <span className="text-[11px] text-slate-500 ml-auto flex items-center gap-1">
+
+                            {m.priority && m.priority !== 'normal' && (
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
+                                  m.priority === 'urgent'
+                                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
+                                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                }`}
+                              >
+                                {m.priority} Priority
+                              </span>
+                            )}
+
+                            <span className="text-[11px] text-slate-500 flex items-center gap-1">
                               <Clock className="w-3 h-3" />
-                              {new Date(msg.createdAt).toLocaleDateString()} {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {new Date(m.createdAt).toLocaleString()}
                             </span>
                           </div>
 
-                          <h4 className="text-sm font-bold text-white pt-1">
-                            {msg.title}
-                          </h4>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                m.read
+                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+                              }`}
+                            >
+                              {m.read ? '✓ Read' : '⌛ Unread'}
+                            </span>
 
-                          <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-line">
-                            {msg.message}
-                          </p>
+                            {!isAll && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const matchedUser = usersList.find(u => u.id === m.userId || u.username === m.targetUsername);
+                                  handleOpenMessageModal(matchedUser);
+                                }}
+                                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                                title="Send follow up message to this user"
+                              >
+                                <Send className="w-3 h-3 text-blue-400" />
+                                <span>Reply</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteAdminMessage(m.id)}
+                              className="p-1.5 bg-rose-950/20 hover:bg-rose-900/40 text-rose-400 border border-rose-800/30 rounded-lg text-xs transition cursor-pointer"
+                              title="Delete Message"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteAdminMessage(msg.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition self-end sm:self-start cursor-pointer"
-                          title="Delete Message"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div>
+                          <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                            {m.title}
+                          </h4>
+                          <p className="text-xs text-slate-300 mt-1 whitespace-pre-line leading-relaxed bg-slate-950/60 p-3 rounded-xl border border-slate-800/60 font-mono sm:font-sans">
+                            {m.message}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    );
+                  })}
+              </div>
+            )}
           </div>
         )}
 
-        {/* TAB 6: EASYPAISA & ADMIN SETTINGS */}
+        {/* TAB 7: PRICING, BOXES, OFFERS & SETTINGS */}
         {activeTab === 'settings' && (
           <div className="space-y-6">
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-lg max-w-2xl">
-              <h3 className="text-base font-bold text-white mb-1">JazzCash / EasyPaisa & Admin Credentials</h3>
-              <p className="text-xs text-slate-400 mb-6">
-                Update your payment receiving account details (shown on the website Deposit modal) and admin login.
-              </p>
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-lg max-w-3xl space-y-6">
+              <div>
+                <h3 className="text-base font-bold text-white mb-1">
+                  Product Boxes, Pricing, Offers & Payment Settings
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Configure separate prices for Simple and Verified accounts, toggle each box on the website, and enable special offer themes!
+                </p>
+              </div>
 
-              <form onSubmit={handleSaveSettings} className="space-y-5">
+              <form onSubmit={handleSaveSettings} className="space-y-6">
                 
-                {/* Payment Account Section */}
+                {/* 1. PRODUCT BOX 1: SIMPLE ACCOUNTS CONFIG */}
+                <div className="p-5 bg-slate-950/80 border border-blue-500/30 rounded-2xl space-y-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs">
+                        FB
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                          Facebook Simple Accounts Box
+                        </h4>
+                        <span className="text-[11px] text-slate-400">Standard UID:Password accounts</span>
+                      </div>
+                    </div>
+
+                    {/* Enable/Disable Toggle */}
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
+                      <input
+                        type="checkbox"
+                        checked={settingsForm.simpleAccountsEnabled}
+                        onChange={(e) => setSettingsForm(prev => ({ ...prev, simpleAccountsEnabled: e.target.checked }))}
+                        className="w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700"
+                      />
+                      <span className={settingsForm.simpleAccountsEnabled ? 'text-emerald-400' : 'text-slate-500'}>
+                        {settingsForm.simpleAccountsEnabled ? 'Box Enabled' : 'Box Disabled'}
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Price per Simple ID (PKR)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        required
+                        value={settingsForm.pricePerIdSimple}
+                        onChange={(e) => setSettingsForm(prev => ({ ...prev, pricePerIdSimple: Number(e.target.value) }))}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-white focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+
+                    {/* Offer Toggle */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Special Offer Theme Effect
+                      </label>
+                      <label className="flex items-center gap-2 p-2 bg-slate-900 rounded-xl border border-slate-800 cursor-pointer text-xs">
+                        <input
+                          type="checkbox"
+                          checked={settingsForm.simpleOfferEnabled}
+                          onChange={(e) => setSettingsForm(prev => ({ ...prev, simpleOfferEnabled: e.target.checked }))}
+                          className="w-4 h-4 rounded text-amber-500 bg-slate-950 border-slate-700"
+                        />
+                        <Flame className="w-4 h-4 text-amber-400" />
+                        <span className="font-bold text-amber-300">Enable Offer Effect</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {settingsForm.simpleOfferEnabled && (
+                    <div>
+                      <label className="block text-xs font-semibold text-amber-300 mb-1">
+                        Optional Offer Message (Displayed on Simple Accounts Box)
+                      </label>
+                      <input
+                        type="text"
+                        value={settingsForm.simpleOfferMessage}
+                        onChange={(e) => setSettingsForm(prev => ({ ...prev, simpleOfferMessage: e.target.value }))}
+                        placeholder="e.g. 🔥 Weekend Sale - Buy 5 Get Discount!"
+                        className="w-full bg-slate-900 border border-amber-500/50 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. PRODUCT BOX 2: VERIFIED ACCOUNTS CONFIG */}
+                <div className="p-5 bg-slate-950/80 border border-cyan-500/30 rounded-2xl space-y-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-cyan-500 text-white flex items-center justify-center font-bold text-xs">
+                        <BadgeCheck className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-1">
+                          <span>Facebook Verified Accounts Box</span>
+                          <Star className="w-3 h-3 text-cyan-400 fill-cyan-400" />
+                        </h4>
+                        <span className="text-[11px] text-slate-400">VIP High Trust Verified Accounts</span>
+                      </div>
+                    </div>
+
+                    {/* Enable/Disable Toggle */}
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
+                      <input
+                        type="checkbox"
+                        checked={settingsForm.verifiedAccountsEnabled}
+                        onChange={(e) => setSettingsForm(prev => ({ ...prev, verifiedAccountsEnabled: e.target.checked }))}
+                        className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-slate-700"
+                      />
+                      <span className={settingsForm.verifiedAccountsEnabled ? 'text-cyan-400' : 'text-slate-500'}>
+                        {settingsForm.verifiedAccountsEnabled ? 'Box Enabled' : 'Box Disabled'}
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Price per Verified ID (PKR)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        required
+                        value={settingsForm.pricePerIdVerified}
+                        onChange={(e) => setSettingsForm(prev => ({ ...prev, pricePerIdVerified: Number(e.target.value) }))}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-cyan-300 focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+
+                    {/* Offer Toggle */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Special Offer Theme Effect
+                      </label>
+                      <label className="flex items-center gap-2 p-2 bg-slate-900 rounded-xl border border-slate-800 cursor-pointer text-xs">
+                        <input
+                          type="checkbox"
+                          checked={settingsForm.verifiedOfferEnabled}
+                          onChange={(e) => setSettingsForm(prev => ({ ...prev, verifiedOfferEnabled: e.target.checked }))}
+                          className="w-4 h-4 rounded text-cyan-500 bg-slate-950 border-slate-700"
+                        />
+                        <Flame className="w-4 h-4 text-cyan-400" />
+                        <span className="font-bold text-cyan-300">Enable Verified Offer Effect</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {settingsForm.verifiedOfferEnabled && (
+                    <div>
+                      <label className="block text-xs font-semibold text-cyan-300 mb-1">
+                        Optional Offer Message (Displayed on Verified Accounts Box)
+                      </label>
+                      <input
+                        type="text"
+                        value={settingsForm.verifiedOfferMessage}
+                        onChange={(e) => setSettingsForm(prev => ({ ...prev, verifiedOfferMessage: e.target.value }))}
+                        placeholder="e.g. ⭐ VIP Blue Verified Profiles on Special Offer!"
+                        className="w-full bg-slate-900 border border-cyan-500/50 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. RECEIVING ACCOUNT DETAILS */}
                 <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wide">
-                      Deposit Receiving Account (JazzCash / EasyPaisa)
-                    </h4>
-                    <span className="text-[10px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-medium">
-                      Live on Website
-                    </span>
+                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wide">
+                    Deposit Receiving Account (JazzCash / EasyPaisa)
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Account Title (e.g. Muhammad Arslan)
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={settingsForm.accountTitle}
+                        onChange={(e) => setSettingsForm(prev => ({ ...prev, accountTitle: e.target.value, jazzcashTitle: e.target.value, easypaisaTitle: e.target.value }))}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Payment Number (e.g. 03064887388)
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={settingsForm.accountNumber}
+                        onChange={(e) => setSettingsForm(prev => ({ ...prev, accountNumber: e.target.value, jazzcashNumber: e.target.value, easypaisaNumber: e.target.value }))}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
                   </div>
-
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Account Title / Name (e.g. Muhammad Arslan)
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Muhammad Arslan"
-                      value={settingsForm.accountTitle || settingsForm.jazzcashTitle || settingsForm.easypaisaTitle}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setSettingsForm(prev => ({ 
-                          ...prev, 
-                          accountTitle: val,
-                          jazzcashTitle: val,
-                          easypaisaTitle: val 
-                        }));
-                      }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Payment Account / Mobile Number (e.g. 03064887388)
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. 03064887388"
-                      value={settingsForm.accountNumber || settingsForm.jazzcashNumber || settingsForm.easypaisaNumber}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setSettingsForm(prev => ({ 
-                          ...prev, 
-                          accountNumber: val,
-                          jazzcashNumber: val,
-                          easypaisaNumber: val 
-                        }));
-                      }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      WhatsApp Support Number (for customer screenshots)
+                      WhatsApp Support Number
                     </label>
                     <input
                       type="text"
@@ -3222,276 +3290,213 @@ export const AdminPortal: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Admin Credentials */}
+                {/* 4. ADMIN LOGIN CREDENTIALS */}
                 <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl space-y-4">
                   <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wide">
-                    Admin Portal Credentials
+                    Admin Portal Login Credentials
                   </h4>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Admin Username
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={settingsForm.adminUsername}
-                      onChange={(e) => setSettingsForm(prev => ({ ...prev, adminUsername: e.target.value }))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-[#1877F2]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Admin Password
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={settingsForm.adminPassword}
-                      onChange={(e) => setSettingsForm(prev => ({ ...prev, adminPassword: e.target.value }))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-[#1877F2]"
-                    />
-                  </div>
-                </div>
-
-                {/* Email Delivery (SMTP) Section for OTP Mails */}
-                <div className="p-4 sm:p-5 bg-gradient-to-br from-slate-950 to-slate-900 border border-sky-500/30 rounded-2xl space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <Mail className="w-4 h-4 text-sky-400" />
-                      Live Email OTP Dispatch (Gmail SMTP)
-                    </h4>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/20">
-                      Real Inbox Delivery
-                    </span>
-                  </div>
-
-                  <div className="p-3 bg-sky-950/40 border border-sky-500/20 rounded-xl space-y-1.5 text-xs text-slate-300 leading-relaxed">
-                    <div className="font-bold text-sky-300 flex items-center gap-1.5">
-                      <span>💡 Real Email (OTP) chalu karne ka tareeqa:</span>
-                    </div>
-                    <ol className="list-decimal list-inside space-y-1 text-[11.5px] text-slate-300 pl-1">
-                      <li>Apne Google Account par jayen aur <strong>2-Step Verification</strong> ON karein.</li>
-                      <li>
-                        <a 
-                          href="https://myaccount.google.com/apppasswords" 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
-                          className="text-sky-400 underline font-semibold hover:text-sky-300"
-                        >
-                          myaccount.google.com/apppasswords
-                        </a> par jakar App Name me "FBStore" likhein aur 16-digit <strong>App Password</strong> generate karein.
-                      </li>
-                      <li>Apna Gmail address aur wo 16-letter App Password neeche enter karein aur <strong>Send Test Email</strong> karein!</li>
-                    </ol>
-                  </div>
-
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        SMTP Host
+                        Admin Username
                       </label>
                       <input
                         type="text"
-                        value={settingsForm.smtpHost || 'smtp.gmail.com'}
-                        onChange={(e) => setSettingsForm(prev => ({ ...prev, smtpHost: e.target.value }))}
-                        placeholder="smtp.gmail.com"
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
+                        required
+                        value={settingsForm.adminUsername}
+                        onChange={(e) => setSettingsForm(prev => ({ ...prev, adminUsername: e.target.value }))}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-[#1877F2]"
                       />
                     </div>
-
                     <div>
                       <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        SMTP Port
+                        Admin Password
                       </label>
                       <input
-                        type="number"
-                        value={settingsForm.smtpPort || 587}
-                        onChange={(e) => setSettingsForm(prev => ({ ...prev, smtpPort: Number(e.target.value) }))}
-                        placeholder="587"
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
+                        type="text"
+                        required
+                        value={settingsForm.adminPassword}
+                        onChange={(e) => setSettingsForm(prev => ({ ...prev, adminPassword: e.target.value }))}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-[#1877F2]"
                       />
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Sender Gmail Address
-                    </label>
-                    <input
-                      type="email"
-                      value={settingsForm.smtpUser || ''}
-                      onChange={(e) => setSettingsForm(prev => ({ ...prev, smtpUser: e.target.value }))}
-                      placeholder="e.g. hasnainhmad081@gmail.com"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Google 16-Letter App Password (not account password)
-                    </label>
-                    <input
-                      type="password"
-                      value={settingsForm.smtpPass || ''}
-                      onChange={(e) => setSettingsForm(prev => ({ ...prev, smtpPass: e.target.value }))}
-                      placeholder="e.g. abcd efgh ijkl mnop"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
-                    />
-                  </div>
-
-                  {settingsForm.smtpUser && settingsForm.smtpPass && (
-                    <div className="pt-2 flex flex-wrap items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            showToast('Sending...', 'Testing SMTP connection and sending verification mail...', 'info');
-                            const res = await fetch('/api/admin/test-email', {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                                Authorization: `Bearer ${token || localStorage.getItem('fbstore_auth_token')}`
-                              },
-                              body: JSON.stringify({ 
-                                targetEmail: settingsForm.smtpUser,
-                                smtpConfig: {
-                                  host: settingsForm.smtpHost || 'smtp.gmail.com',
-                                  port: Number(settingsForm.smtpPort) || 587,
-                                  user: settingsForm.smtpUser,
-                                  pass: settingsForm.smtpPass,
-                                }
-                              })
-                            });
-                            const data = await res.json();
-                            if (res.ok) {
-                              showToast('Email Sent!', data.message || 'Test email sent successfully.', 'success');
-                            } else {
-                              showToast('SMTP Test Failed', data.error || 'Failed to connect.', 'error');
-                            }
-                          } catch (err: any) {
-                            showToast('Error', err.message, 'error');
-                          }
-                        }}
-                        className="px-4 py-2.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-2 shadow-lg shadow-sky-600/20"
-                      >
-                        <Mail className="w-3.5 h-3.5" />
-                        <span>Send Test Email to {settingsForm.smtpUser}</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Persistent Database Backup & Restore */}
-                <div className="p-4 bg-emerald-950/40 border border-emerald-500/30 rounded-xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
-                      <Database className="w-4 h-4 text-emerald-400" />
-                      Persistent Database Backup & Restore
-                    </span>
-                    <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
-                      Anti-Reset Protection
-                    </span>
-                  </div>
-                  <p className="text-[11.5px] text-slate-300 leading-relaxed">
-                    Whenever you add new features or publish the website, save a backup of your registered users, wallet balances, and stock here. If a fresh deployment ever resets data, simply click <strong>Restore Backup</strong> to bring back all user balances and accounts instantly.
-                  </p>
-                  <div className="flex flex-wrap items-center gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleDownloadBackup}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-2 shadow-lg shadow-emerald-600/20"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Download Backup (db.json)</span>
-                    </button>
-                    <label className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-2">
-                      <Upload className="w-4 h-4" />
-                      <span>Restore from Backup</span>
-                      <input
-                        type="file"
-                        accept=".json,application/json"
-                        onChange={handleRestoreBackupFile}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                {/* Firestore Database Connection & Cloud Persistence */}
-                <div className="p-4 bg-blue-950/60 border border-blue-500/30 rounded-xl space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <span className="text-xs font-bold text-blue-300 flex items-center gap-1.5">
-                        <Database className="w-4 h-4 text-blue-400" />
-                        <span>Firestore Cloud Persistence: fbstore-bf1e3</span>
-                      </span>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        Saves all registered customer accounts, balances, stock inventory, and orders to Google Firestore so data is never lost.
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        disabled={isSyncingFirebase}
-                        onClick={handleSyncFirebaseNow}
-                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-[11px] font-bold rounded-lg flex items-center gap-1.5 transition cursor-pointer shadow-md"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncingFirebase ? 'animate-spin' : ''}`} />
-                        <span>{isSyncingFirebase ? 'Syncing...' : 'Sync to Firestore Now'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={isSyncingFirebase}
-                        onClick={handlePullFirebaseNow}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-[11px] font-bold rounded-lg flex items-center gap-1.5 transition cursor-pointer shadow-md"
-                        title="Pull all stored users, stock, and orders from Firestore"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Recover from Firestore</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={copyFirestoreRule}
-                        className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold rounded-lg flex items-center gap-1 transition cursor-pointer border border-slate-700"
-                      >
-                        {copiedRules ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedRules ? 'Copied!' : 'Copy Rule'}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="p-3 bg-slate-950/90 rounded-lg border border-slate-800 space-y-1.5">
-                    <span className="text-[11px] font-bold text-amber-300 block">
-                      ⚠️ If Firestore shows permission error or rules expired:
-                    </span>
-                    <p className="text-[11px] text-slate-400 leading-relaxed">
-                      Open your Firebase Console → Firestore Database → <strong>Rules</strong> tab and replace with this rule to allow database access:
-                    </p>
-                    <pre className="p-2 bg-slate-900 rounded text-[10.5px] text-emerald-300 font-mono overflow-x-auto select-all border border-slate-800">
-{`rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
-    }
-  }
-}`}
-                    </pre>
                   </div>
                 </div>
 
                 <button
                   type="submit"
-                  className="w-full py-3 bg-[#1877F2] hover:bg-blue-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-600/30 transition cursor-pointer"
+                  className="w-full py-3 bg-[#1877F2] hover:bg-blue-600 text-white font-bold text-xs rounded-xl shadow-lg transition cursor-pointer"
                 >
-                  Save All Settings
+                  Save All Product Boxes & Settings Live
                 </button>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 8: DATABASE BACKUP & RESTORE */}
+        {activeTab === 'backup' && (
+          <div className="space-y-6">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+              <div className="pb-4 border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-bold">
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Database Backup & Disaster Recovery</h3>
+                    <p className="text-xs text-slate-400">
+                      Download full encrypted database exports or restore customer accounts, wallets, and stock from backup files
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* 1. EXPORT / DOWNLOAD BACKUP */}
+                <div className="p-5 bg-slate-950 border border-slate-800 rounded-2xl space-y-4 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold">
+                        <Download className="w-4 h-4" />
+                      </div>
+                      <h4 className="text-sm font-bold text-white">Download Database Backup</h4>
+                    </div>
+
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Generates and downloads a complete snapshot of all users, wallet balances, stock items (both simple and verified with cookies), purchase orders, deposit requests, feedback submissions, announcements, and pricing settings.
+                    </p>
+
+                    {/* Live System Data Counters */}
+                    <div className="grid grid-cols-2 gap-2 p-3 bg-slate-900 rounded-xl border border-slate-800 text-xs">
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Customers:</span>
+                        <strong className="text-white font-mono">{usersList.length} Accounts</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Available Stock:</span>
+                        <strong className="text-emerald-400 font-mono">{availableSimpleCount + availableVerifiedCount} IDs</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Sold Stock:</span>
+                        <strong className="text-blue-400 font-mono">{soldSimpleCount + soldVerifiedCount} Sold</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Deposit Logs:</span>
+                        <strong className="text-slate-300 font-mono">{deposits.length} Records</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadBackup}
+                    disabled={isExportingBackup}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2 transition cursor-pointer"
+                  >
+                    {isExportingBackup ? (
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" />
+                        <span>Download Full Database Backup (.json)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* 2. IMPORT / RESTORE BACKUP */}
+                <div className="p-5 bg-slate-950 border border-slate-800 rounded-2xl space-y-4 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold">
+                        <Upload className="w-4 h-4" />
+                      </div>
+                      <h4 className="text-sm font-bold text-white">Restore Database from Backup</h4>
+                    </div>
+
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Upload a previously exported <code className="text-blue-400 bg-slate-900 px-1 py-0.5 rounded">.json</code> backup file. The system will inspect the contents and allow you to verify the stats before restoring.
+                    </p>
+
+                    {/* File upload input */}
+                    <div className="p-3 bg-slate-900 border border-dashed border-slate-700 rounded-xl text-center space-y-2">
+                      <input
+                        type="file"
+                        accept=".json"
+                        id="backup-upload-input"
+                        onChange={handleSelectRestoreFile}
+                        className="hidden"
+                      />
+                      <label
+                        htmlFor="backup-upload-input"
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl cursor-pointer transition"
+                      >
+                        <Upload className="w-4 h-4 text-blue-400" />
+                        <span>Select .json Backup File</span>
+                      </label>
+                      <span className="block text-[11px] text-slate-500">
+                        {backupRestorePreview ? backupRestorePreview.fileName : 'Only JSON backup files are supported'}
+                      </span>
+                    </div>
+
+                    {/* Preview of selected backup file */}
+                    {backupRestorePreview && (
+                      <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs space-y-2 animate-fade-in">
+                        <div className="flex items-center gap-1.5 text-amber-400 font-bold">
+                          <AlertTriangle className="w-4 h-4" />
+                          <span>Backup File Verified: {backupRestorePreview.fileName}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-300">
+                          <div>• Users to restore: <strong className="text-white font-mono">{backupRestorePreview.usersCount}</strong></div>
+                          <div>• Stock items: <strong className="text-white font-mono">{backupRestorePreview.stockCount}</strong></div>
+                          <div>• Purchases: <strong className="text-white font-mono">{backupRestorePreview.purchasesCount}</strong></div>
+                          <div>• Deposits: <strong className="text-white font-mono">{backupRestorePreview.depositsCount}</strong></div>
+                        </div>
+                        <p className="text-[10px] text-amber-300/80">
+                          ⚠️ Warning: Restoring will overwrite existing database records with data from this file.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {backupRestorePreview ? (
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleConfirmRestoreDatabase}
+                        disabled={isRestoringBackup}
+                        className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2 transition cursor-pointer"
+                      >
+                        {isRestoringBackup ? (
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <>
+                            <RefreshCw className="w-4 h-4" />
+                            <span>Confirm & Restore Database Now</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBackupRestorePreview(null);
+                          setPendingRestoreData(null);
+                        }}
+                        className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 bg-slate-900/50 rounded-xl text-center text-slate-500 text-[11px]">
+                      Select a backup file above to enable restoration
+                    </div>
+                  )}
+                </div>
+
+              </div>
             </div>
           </div>
         )}
@@ -3501,164 +3506,55 @@ service cloud.firestore {
       {/* MODAL 1: DIRECT USER BALANCE ADJUSTMENT */}
       {balanceModalUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-2xl">
-            
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
-                  <Wallet className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Adjust Customer Balance</h3>
-                  <span className="text-[11px] text-slate-400">User: @{balanceModalUser.username}</span>
-                </div>
-              </div>
-              <button
-                onClick={() => setBalanceModalUser(null)}
-                className="text-slate-400 hover:text-white p-1"
-              >
+          <div className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h3 className="text-sm font-bold text-white">Adjust Balance for @{balanceModalUser.username}</h3>
+              <button onClick={() => setBalanceModalUser(null)} className="text-slate-400 hover:text-white p-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
-
-            {/* Current Balance Display */}
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-              <span className="text-xs text-slate-400">Current Wallet Balance:</span>
-              <span className="text-sm font-bold text-emerald-400 font-mono">
-                Rs. {balanceModalUser.walletBalance.toLocaleString()} PKR
-              </span>
+            <div className="p-3 bg-slate-950 rounded-xl text-xs flex justify-between">
+              <span className="text-slate-400">Current Balance:</span>
+              <strong className="text-emerald-400 font-mono">Rs. {balanceModalUser.walletBalance} PKR</strong>
             </div>
-
             <form onSubmit={handleUpdateUserBalance} className="space-y-4">
-              
-              {/* Mode Selector */}
-              <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800">
+              <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-950 rounded-xl">
                 <button
                   type="button"
                   onClick={() => setAdjustMode('add')}
-                  className={`py-2 text-xs font-bold rounded-lg transition ${
-                    adjustMode === 'add'
-                      ? 'bg-emerald-600 text-white'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
+                  className={`py-1.5 text-xs font-bold rounded-lg ${adjustMode === 'add' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
                 >
                   + Add
                 </button>
                 <button
                   type="button"
                   onClick={() => setAdjustMode('deduct')}
-                  className={`py-2 text-xs font-bold rounded-lg transition ${
-                    adjustMode === 'deduct'
-                      ? 'bg-rose-600 text-white'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
+                  className={`py-1.5 text-xs font-bold rounded-lg ${adjustMode === 'deduct' ? 'bg-rose-600 text-white' : 'text-slate-400'}`}
                 >
                   - Deduct
                 </button>
                 <button
                   type="button"
                   onClick={() => setAdjustMode('set')}
-                  className={`py-2 text-xs font-bold rounded-lg transition ${
-                    adjustMode === 'set'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
+                  className={`py-1.5 text-xs font-bold rounded-lg ${adjustMode === 'set' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
                 >
                   Set Total
                 </button>
               </div>
 
-              {/* Amount input */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  {adjustMode === 'add' ? 'Amount to Add (PKR)' : adjustMode === 'deduct' ? 'Amount to Deduct (PKR)' : 'New Total Balance (PKR)'}
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-2.5 text-xs font-bold text-slate-500">Rs.</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    required
-                    value={adjustAmount}
-                    onChange={(e) => setAdjustAmount(Number(e.target.value))}
-                    className={`w-full bg-slate-950 border rounded-xl pl-10 pr-4 py-2 text-sm font-mono font-bold text-white focus:outline-none ${
-                      adjustMode === 'deduct' 
-                        ? 'border-rose-900/60 focus:border-rose-500' 
-                        : 'border-slate-700 focus:border-emerald-500'
-                    }`}
-                  />
-                </div>
-              </div>
-
-              {/* Quick Pick buttons */}
-              {adjustMode === 'add' && (
-                <div className="flex items-center gap-1.5">
-                  {[24, 60, 120, 240, 600].map((quick) => (
-                    <button
-                      key={quick}
-                      type="button"
-                      onClick={() => setAdjustAmount(quick)}
-                      className={`text-[11px] font-semibold px-2 py-1 rounded-lg border transition ${
-                        adjustAmount === quick
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      +Rs {quick}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {adjustMode === 'deduct' && (
-                <div className="flex items-center gap-1.5">
-                  {[12, 24, 60, 120, 240].map((quick) => (
-                    <button
-                      key={quick}
-                      type="button"
-                      onClick={() => setAdjustAmount(quick)}
-                      className={`text-[11px] font-semibold px-2 py-1 rounded-lg border transition ${
-                        adjustAmount === quick
-                          ? 'bg-rose-500/20 border-rose-500 text-rose-300'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      -Rs {quick}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Result Preview */}
-              <div className="p-2.5 bg-slate-950/70 border border-slate-800/80 rounded-xl text-xs flex items-center justify-between text-slate-300">
-                <span>New Balance Will Be:</span>
-                <strong className={`font-mono text-sm ${adjustMode === 'deduct' ? 'text-rose-400' : 'text-emerald-400'}`}>
-                  Rs. {(adjustMode === 'add' 
-                    ? balanceModalUser.walletBalance + adjustAmount 
-                    : adjustMode === 'deduct'
-                      ? Math.max(0, balanceModalUser.walletBalance - adjustAmount)
-                      : adjustAmount
-                  ).toLocaleString()} PKR
-                </strong>
-              </div>
-
-              {/* Reason */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Reason / Note
-                </label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Amount (PKR)</label>
                 <input
-                  type="text"
-                  value={adjustReason}
-                  onChange={(e) => setAdjustReason(e.target.value)}
-                  placeholder="e.g. WhatsApp screenshot verified"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  type="number"
+                  min={0}
+                  required
+                  value={adjustAmount}
+                  onChange={(e) => setAdjustAmount(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono text-white"
                 />
               </div>
 
-              {/* Actions */}
-              <div className="flex gap-2 justify-end pt-2">
+              <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setBalanceModalUser(null)}
@@ -3669,180 +3565,10 @@ service cloud.firestore {
                 <button
                   type="submit"
                   disabled={isUpdatingBalance}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5"
                 >
-                  {isUpdatingBalance ? (
-                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Update User Balance</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-            </form>
-
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 1b: TOTAL LIFETIME BALANCE ADJUSTMENT (DEDUCT / RESET / SET) */}
-      {totalBalanceModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
-                  <Wallet className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Total Balance Added Counter</h3>
-                  <span className="text-[11px] text-slate-400">Manage or adjust lifetime counter</span>
-                </div>
-              </div>
-              <button
-                onClick={() => setTotalBalanceModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Current Total Balance Display */}
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-              <span className="text-xs text-slate-400">Current Total Added Counter:</span>
-              <span className="text-sm font-bold text-emerald-400 font-mono">
-                Rs. {(totalLifetimeBalanceAdded || 0).toLocaleString()} PKR
-              </span>
-            </div>
-
-            {/* Mode Selector */}
-            <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800">
-              <button
-                type="button"
-                onClick={() => setTotalBalanceMode('deduct')}
-                className={`py-2 text-xs font-bold rounded-lg transition ${
-                  totalBalanceMode === 'deduct'
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                - Deduct
-              </button>
-              <button
-                type="button"
-                onClick={() => setTotalBalanceMode('reset')}
-                className={`py-2 text-xs font-bold rounded-lg transition ${
-                  totalBalanceMode === 'reset'
-                    ? 'bg-rose-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Reset to 0
-              </button>
-              <button
-                type="button"
-                onClick={() => setTotalBalanceMode('set')}
-                className={`py-2 text-xs font-bold rounded-lg transition ${
-                  totalBalanceMode === 'set'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Set Amount
-              </button>
-            </div>
-
-            <form onSubmit={handleAdjustTotalLifetimeBalance} className="space-y-4">
-              {totalBalanceMode === 'reset' ? (
-                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 space-y-1">
-                  <div className="font-bold flex items-center gap-1.5 text-rose-200">
-                    <AlertCircle className="w-4 h-4 text-rose-400" />
-                    <span>Reset Counter Confirmation</span>
-                  </div>
-                  <p className="text-[11px] text-rose-300/90 leading-relaxed">
-                    This will reset the total lifetime balance added counter back to <strong>Rs. 0 PKR</strong>. Individual user wallet balances will not be affected.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                      {totalBalanceMode === 'deduct' ? 'Amount to Deduct from Total (PKR)' : 'New Total Counter Value (PKR)'}
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-2.5 text-xs font-bold text-slate-500">Rs.</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        required
-                        value={totalBalanceInput}
-                        onChange={(e) => setTotalBalanceInput(Number(e.target.value))}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-2 text-sm font-mono font-bold text-white focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
-                  </div>
-
-                  {totalBalanceMode === 'deduct' && (
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {[50, 100, 250, 500, 1000].map((quick) => (
-                        <button
-                          key={quick}
-                          type="button"
-                          onClick={() => setTotalBalanceInput(quick)}
-                          className={`text-[11px] font-semibold px-2 py-1 rounded-lg border transition ${
-                            totalBalanceInput === quick
-                              ? 'bg-amber-500/20 border-amber-500 text-amber-300'
-                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          -Rs {quick}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Result Preview */}
-                  <div className="p-2.5 bg-slate-950/70 border border-slate-800/80 rounded-xl text-xs flex items-center justify-between text-slate-300">
-                    <span>New Counter Will Be:</span>
-                    <strong className="text-emerald-400 font-mono text-sm">
-                      Rs. {(totalBalanceMode === 'deduct' 
-                        ? Math.max(0, (totalLifetimeBalanceAdded || 0) - totalBalanceInput)
-                        : totalBalanceInput
-                      ).toLocaleString()} PKR
-                    </strong>
-                  </div>
-                </>
-              )}
-
-              <div className="flex gap-2 justify-end pt-2">
-                <button
-                  type="button"
-                  onClick={() => setTotalBalanceModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-bold rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isAdjustingTotal}
-                  className={`px-5 py-2 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${
-                    totalBalanceMode === 'reset'
-                      ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30'
-                      : 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/30'
-                  }`}
-                >
-                  {isAdjustingTotal ? (
-                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>{totalBalanceMode === 'reset' ? 'Confirm Reset to 0' : totalBalanceMode === 'deduct' ? 'Deduct Amount' : 'Update Counter'}</span>
-                    </>
-                  )}
+                  <Check className="w-4 h-4" />
+                  <span>Update Balance</span>
                 </button>
               </div>
             </form>
@@ -3850,22 +3576,17 @@ service cloud.firestore {
         </div>
       )}
 
-      {/* MODAL 2: SCREENSHOT PREVIEW ZOOM */}
+      {/* MODAL 2: SCREENSHOT PREVIEW */}
       {previewScreenshot && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
           <div className="relative max-w-2xl w-full bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden p-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-              <h3 className="text-sm font-bold text-white">Payment Receipt Zoom</h3>
-              <button
-                onClick={() => setPreviewScreenshot(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white"
-              >
+            <div className="flex justify-between pb-2 border-b border-slate-800 mb-3">
+              <h3 className="text-sm font-bold text-white">Payment Receipt</h3>
+              <button onClick={() => setPreviewScreenshot(null)} className="p-1 text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="max-h-[75vh] overflow-auto flex items-center justify-center bg-black/40 rounded-xl p-2">
-              <img src={previewScreenshot} alt="Receipt Full" className="max-w-full max-h-[70vh] object-contain rounded-lg" />
-            </div>
+            <img src={previewScreenshot} alt="Receipt" className="max-w-full max-h-[70vh] object-contain rounded-lg mx-auto" />
           </div>
         </div>
       )}
@@ -3875,29 +3596,18 @@ service cloud.firestore {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
             <h3 className="text-base font-bold text-white">Reject Deposit Request</h3>
-            <p className="text-xs text-slate-400">
-              Please enter the reason for rejecting this deposit:
-            </p>
             <input
               type="text"
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="e.g. Invalid Transaction ID or payment not received"
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+              placeholder="Reason for rejection..."
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white"
             />
-            <div className="flex gap-2 justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => setRejectId(null)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-bold rounded-xl"
-              >
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setRejectId(null)} className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-bold rounded-xl">
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleConfirmReject}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl"
-              >
+              <button onClick={handleConfirmReject} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl">
                 Confirm Reject
               </button>
             </div>
@@ -3905,176 +3615,19 @@ service cloud.firestore {
         </div>
       )}
 
-      {/* MODAL 4: ADMIN CHANGE USER PASSWORD */}
-      {passwordModalUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 text-[#1877F2] flex items-center justify-center font-bold">
-                  <KeyRound className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Change User Password</h3>
-                  <span className="text-[11px] text-slate-400">Customer: @{passwordModalUser.username}</span>
-                </div>
-              </div>
-              <button
-                onClick={() => setPasswordModalUser(null)}
-                className="text-slate-400 hover:text-white p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-1.5 text-slate-400">
-              <div>Customer Email: <strong className="text-white">{passwordModalUser.email}</strong></div>
-              <div>Current Balance: <strong className="text-emerald-400 font-mono">Rs. {passwordModalUser.walletBalance} PKR</strong></div>
-              {passwordModalUser.plainPassword && (
-                <div className="flex items-center justify-between pt-1.5 border-t border-slate-800">
-                  <span>Current Password:</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-200 select-all font-semibold">
-                      {showModalPassword ? passwordModalUser.plainPassword : '••••••••'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowModalPassword(!showModalPassword)}
-                      className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition cursor-pointer"
-                      title={showModalPassword ? "Hide password" : "Show password"}
-                    >
-                      {showModalPassword ? <EyeOff className="w-3.5 h-3.5 text-[#1877F2]" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleCopyPassword(passwordModalUser.plainPassword || '', passwordModalUser.username)}
-                      className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded transition cursor-pointer"
-                      title="Copy password"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <form onSubmit={handleAdminChangeUserPassword} className="space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-semibold text-slate-300">
-                    New Password (min 6 characters)
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const randomPass = `fb_${Math.random().toString(36).substring(2, 8)}786`;
-                      setAdminNewPasswordInput(randomPass);
-                    }}
-                    className="text-[11px] text-[#1877F2] hover:underline cursor-pointer"
-                  >
-                    Generate Random
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  required
-                  value={adminNewPasswordInput}
-                  onChange={(e) => setAdminNewPasswordInput(e.target.value)}
-                  placeholder="Enter new password for customer"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-[#1877F2]"
-                />
-              </div>
-
-              <div className="flex gap-2 justify-end pt-2">
-                <button
-                  type="button"
-                  onClick={() => setPasswordModalUser(null)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-bold rounded-xl cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUpdatingUserPassword || !adminNewPasswordInput.trim()}
-                  className="px-4 py-2 bg-[#1877F2] hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 flex items-center gap-1.5 cursor-pointer"
-                >
-                  {isUpdatingUserPassword ? (
-                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Set New Password</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 5: CONFIRM DELETE USER ACCOUNT */}
-      {deleteUserModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="relative max-w-sm w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
-            <div className="w-10 h-10 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
-              <Trash2 className="w-5 h-5" />
-            </div>
-
-            <div className="text-center space-y-1">
-              <h3 className="text-base font-bold text-white">Delete User Account?</h3>
-              <p className="text-xs text-slate-400">
-                Are you sure you want to permanently delete user <strong className="text-rose-400">@{deleteUserModal.username}</strong> ({deleteUserModal.email})?
-              </p>
-              <p className="text-[11px] text-slate-500">
-                Wallet Balance: Rs. {deleteUserModal.walletBalance} PKR. This action cannot be undone.
-              </p>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setDeleteUserModal(null)}
-                className="flex-1 py-2 bg-slate-800 text-slate-300 text-xs font-bold rounded-xl cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isDeletingUser}
-                onClick={handleAdminDeleteUser}
-                className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-lg shadow-rose-600/30 flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                {isDeletingUser ? (
-                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <span>Delete Account</span>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 5: CREATE / EDIT ANNOUNCEMENT MODAL */}
+      {/* MODAL 4: CREATE OR EDIT SITE ANNOUNCEMENT */}
       {announcementModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="relative max-w-lg w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="relative max-w-lg w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-600/10 border border-blue-500/20 text-[#1877F2] flex items-center justify-center font-bold">
-                  <Megaphone className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">
-                    {editingAnnouncement ? 'Edit Site Announcement' : 'Create New Announcement'}
-                  </h3>
-                  <span className="text-[11px] text-slate-400">
-                    Visible on website as cards or screen dialogs
-                  </span>
-                </div>
+                <Megaphone className="w-5 h-5 text-blue-400" />
+                <h3 className="text-sm font-bold text-white">
+                  {editingAnnouncement ? 'Edit Site Announcement' : 'Create New Site Announcement'}
+                </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setAnnouncementModalOpen(false)}
                 className="text-slate-400 hover:text-white p-1"
               >
@@ -4083,7 +3636,6 @@ service cloud.firestore {
             </div>
 
             <form onSubmit={handleSaveAnnouncement} className="space-y-4">
-              {/* Title */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Announcement Title
@@ -4093,12 +3645,11 @@ service cloud.firestore {
                   required
                   value={annTitle}
                   onChange={(e) => setAnnTitle(e.target.value)}
-                  placeholder="e.g. Important Notice Regarding EasyPaisa Payments"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#1877F2]"
+                  placeholder="e.g. 🔥 Special Weekend Offer: 20% Off Verified Accounts!"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
 
-              {/* Message Body */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Announcement Message / Description
@@ -4108,123 +3659,223 @@ service cloud.firestore {
                   required
                   value={annMessage}
                   onChange={(e) => setAnnMessage(e.target.value)}
-                  placeholder="Write full announcement details for users here..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#1877F2] font-normal"
+                  placeholder="Enter details of announcement, discount code, instruction, or notice..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-blue-500 font-medium"
                 />
               </div>
 
-              {/* Type / Color Style */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Announcement Visual Style & Color
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5">
-                  {(['info', 'offer', 'success', 'warning', 'alert', 'urgent'] as AnnouncementType[]).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setAnnType(t)}
-                      className={`py-2 text-[11px] font-bold rounded-xl border transition cursor-pointer capitalize ${
-                        annType === t
-                          ? t === 'offer'
-                            ? 'bg-amber-500/30 border-amber-400 text-amber-300 font-extrabold shadow-sm'
-                            : t === 'urgent' || t === 'alert'
-                              ? 'bg-rose-600/30 border-rose-500 text-rose-300'
-                              : t === 'warning'
-                                ? 'bg-amber-600/30 border-amber-500 text-amber-300'
-                                : t === 'success'
-                                  ? 'bg-emerald-600/30 border-emerald-500 text-emerald-300'
-                                  : 'bg-blue-600/30 border-blue-500 text-blue-300'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {t === 'offer' ? '🔥 Offer' : t}
-                    </button>
-                  ))}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Announcement Type / Style
+                  </label>
+                  <select
+                    value={annType}
+                    onChange={(e) => setAnnType(e.target.value as AnnouncementType)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="info">Information (Blue)</option>
+                    <option value="offer">Special Offer / Deal (Gold Flame)</option>
+                    <option value="urgent">Urgent Alert (Red Pulse)</option>
+                    <option value="warning">Warning (Orange)</option>
+                    <option value="success">Success / News (Green)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Target Audience
+                  </label>
+                  <select
+                    value={annTargetType}
+                    onChange={(e) => setAnnTargetType(e.target.value as 'all' | 'user')}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="all">All Visitors & Users</option>
+                    <option value="user">Specific User Only</option>
+                  </select>
                 </div>
               </div>
 
-              {/* Display Frequency / Re-show Behavior */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Display Frequency / Re-Show Behavior
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAnnFrequency('every_refresh')}
-                    className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                      annFrequency === 'every_refresh'
-                        ? 'bg-blue-600/20 border-blue-500 text-white shadow-xs'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <span className="block text-xs font-bold text-white mb-0.5">🔄 Re-appear on every refresh</span>
-                    <span className="block text-[10px] text-slate-400 leading-tight">
-                      Agar user cut kare to page refresh par dubara show hoga.
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAnnFrequency('once_only')}
-                    className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                      annFrequency === 'once_only'
-                        ? 'bg-purple-600/20 border-purple-500 text-white shadow-xs'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <span className="block text-xs font-bold text-white mb-0.5">1️⃣ Single ek hi baar (Once Only)</span>
-                    <span className="block text-[10px] text-slate-400 leading-tight">
-                      Agar user ek dafa cut karde to dubara kabhi show nahi hoga.
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Target Audience */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Target Audience
-                </label>
-                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800 mb-2">
-                  <button
-                    type="button"
-                    onClick={() => setAnnTargetType('all')}
-                    className={`py-2 text-xs font-bold rounded-lg transition ${
-                      annTargetType === 'all'
-                        ? 'bg-[#1877F2] text-white shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    All Users (Global)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAnnTargetType('user')}
-                    className={`py-2 text-xs font-bold rounded-lg transition ${
-                      annTargetType === 'user'
-                        ? 'bg-purple-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Specific Single User
-                  </button>
-                </div>
-
-                {annTargetType === 'user' && (
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                      Select Target User
-                    </label>
+              {annTargetType === 'user' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Select Target User
+                  </label>
+                  {usersList.length > 0 && (
                     <select
                       value={annTargetUserId}
                       onChange={(e) => setAnnTargetUserId(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 mb-1.5"
                     >
-                      <option value="">-- Choose User --</option>
+                      <option value="">-- Choose registered customer --</option>
+                      {usersList.map((u) => (
+                        <option key={u.id} value={u.username}>
+                          @{u.username} ({u.email})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <input
+                    type="text"
+                    required
+                    value={annTargetUserId}
+                    onChange={(e) => setAnnTargetUserId(e.target.value)}
+                    placeholder="Or type username manually (e.g. arslan481)"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-950 rounded-xl border border-slate-800">
+                <label className="flex items-center gap-2 cursor-pointer text-xs">
+                  <input
+                    type="checkbox"
+                    checked={annShowAsPopup}
+                    onChange={(e) => setAnnShowAsPopup(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700"
+                  />
+                  <div>
+                    <span className="font-bold text-white block">Modal Popup Alert</span>
+                    <span className="text-[10px] text-slate-400">Pops up over the page</span>
+                  </div>
+                </label>
+
+                {annShowAsPopup && (
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                      Popup Frequency
+                    </label>
+                    <select
+                      value={annFrequency}
+                      onChange={(e) => setAnnFrequency(e.target.value as 'every_refresh' | 'once_only')}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white"
+                    >
+                      <option value="every_refresh">Every page visit</option>
+                      <option value="once_only">Once only per visitor</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                <label className="flex items-center gap-2 cursor-pointer text-xs">
+                  <input
+                    type="checkbox"
+                    checked={annActive}
+                    onChange={(e) => setAnnActive(e.target.checked)}
+                    className="w-4 h-4 rounded text-emerald-600 bg-slate-900 border-slate-700"
+                  />
+                  <span className={annActive ? 'text-emerald-400 font-bold' : 'text-slate-500'}>
+                    {annActive ? 'Active (Live on Website)' : 'Save as Inactive Draft'}
+                  </span>
+                </label>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAnnouncementModalOpen(false)}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingAnnouncement}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {isSavingAnnouncement ? (
+                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>{editingAnnouncement ? 'Save Changes' : 'Publish Announcement'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: COMPOSE DIRECT ADMIN MESSAGE */}
+      {messageModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fade-in">
+          <div className="relative max-w-lg w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-600/10 text-blue-400 flex items-center justify-center font-bold">
+                  <Send className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    {messageTargetUser ? `Message to @${messageTargetUser.username}` : 'Compose Direct Message'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Delivered instantly to user inbox and synced in real time
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMessageModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendAdminMessage} className="space-y-4">
+              {/* Recipient Selection */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Select Recipient
+                </label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl mb-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMsgTargetType('user');
+                      if (!msgSelectedUserId && usersList.length > 0) {
+                        setMsgSelectedUserId(usersList[0].id);
+                      }
+                    }}
+                    className={`py-1.5 text-xs font-bold rounded-lg transition ${
+                      msgTargetType === 'user' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    👤 Specific User
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMsgTargetType('all');
+                      setMessageTargetUser(null);
+                    }}
+                    className={`py-1.5 text-xs font-bold rounded-lg transition ${
+                      msgTargetType === 'all' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    📢 Broadcast All Users
+                  </button>
+                </div>
+
+                {msgTargetType === 'user' && (
+                  <div className="space-y-2">
+                    <select
+                      value={msgSelectedUserId}
+                      onChange={(e) => {
+                        setMsgSelectedUserId(e.target.value);
+                        const found = usersList.find(u => u.id === e.target.value);
+                        if (found) setMessageTargetUser(found);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                    >
                       {usersList.map((u) => (
                         <option key={u.id} value={u.id}>
-                          @{u.username} ({u.email})
+                          @{u.username} ({u.email}) - Wallet: Rs. {u.walletBalance} PKR
                         </option>
                       ))}
                     </select>
@@ -4232,48 +3883,146 @@ service cloud.firestore {
                 )}
               </div>
 
-              {/* Extra Checkboxes */}
-              <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl space-y-2 text-xs text-slate-300">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={annShowAsPopup}
-                    onChange={(e) => setAnnShowAsPopup(e.target.checked)}
-                    className="w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700"
-                  />
-                  <span>Show as Screen Popup Dialog Modal (pops up on visitor screen)</span>
+              {/* Priority Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Message Priority
                 </label>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={annActive}
-                    onChange={(e) => setAnnActive(e.target.checked)}
-                    className="w-4 h-4 rounded text-emerald-600 bg-slate-900 border-slate-700"
-                  />
-                  <span>Active & Visible immediately</span>
-                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMsgPriority('normal')}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl border transition ${
+                      msgPriority === 'normal'
+                        ? 'bg-blue-600/20 text-blue-300 border-blue-500/50 shadow-xs'
+                        : 'bg-slate-950 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    Normal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMsgPriority('high')}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl border transition ${
+                      msgPriority === 'high'
+                        ? 'bg-amber-600/20 text-amber-300 border-amber-500/50 shadow-xs'
+                        : 'bg-slate-950 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    High (Amber)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMsgPriority('urgent')}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl border transition ${
+                      msgPriority === 'urgent'
+                        ? 'bg-rose-600/20 text-rose-300 border-rose-500/50 shadow-xs'
+                        : 'bg-slate-950 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    Urgent (Red Alert)
+                  </button>
+                </div>
               </div>
 
-              <div className="flex gap-2 justify-end pt-2">
+              {/* Quick Template Chips */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+                  Quick Message Templates:
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMsgTitle('Wallet Balance Credited');
+                      setMsgBody('Hello! Your deposit has been verified and your wallet balance has been updated. You can now purchase Facebook accounts instantly from the store.');
+                    }}
+                    className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-[11px] text-slate-300 border border-slate-800 rounded-lg transition"
+                  >
+                    💰 Balance Credited
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMsgTitle('Payment Receipt Verified');
+                      setMsgBody('Your transaction has been confirmed and approved by admin. Thank you for choosing FBStore!');
+                    }}
+                    className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-[11px] text-slate-300 border border-slate-800 rounded-lg transition"
+                  >
+                    ✅ Payment Approved
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMsgTitle('Important Account Notice');
+                      setMsgBody('Please make sure to back up your purchased UID:Password and cookie data immediately upon purchase. For any queries, contact admin.');
+                    }}
+                    className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-[11px] text-slate-300 border border-slate-800 rounded-lg transition"
+                  >
+                    ⚠️ Security Notice
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMsgTitle('Special VIP Deal for You!');
+                      setMsgBody('Enjoy our special discounted rates on Facebook Verified and Simple accounts today. Stock is limited!');
+                    }}
+                    className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-[11px] text-slate-300 border border-slate-800 rounded-lg transition"
+                  >
+                    🔥 Special Offer
+                  </button>
+                </div>
+              </div>
+
+              {/* Message Title */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Message Title / Subject
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={msgTitle}
+                  onChange={(e) => setMsgTitle(e.target.value)}
+                  placeholder="e.g. Deposit Approved & Wallet Updated"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Message Content */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Message Content
+                </label>
+                <textarea
+                  rows={4}
+                  required
+                  value={msgBody}
+                  onChange={(e) => setMsgBody(e.target.value)}
+                  placeholder="Type your official message, custom instruction, or notification..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-blue-500 font-medium"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setAnnouncementModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-bold rounded-xl"
+                  onClick={() => setMessageModalOpen(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={isSavingAnnouncement}
-                  className="px-5 py-2 bg-[#1877F2] hover:bg-blue-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  disabled={isSendingMessage}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 cursor-pointer"
                 >
-                  {isSavingAnnouncement ? (
+                  {isSendingMessage ? (
                     <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
                     <>
-                      <Check className="w-4 h-4" />
-                      <span>{editingAnnouncement ? 'Save Changes' : 'Publish Announcement'}</span>
+                      <Send className="w-4 h-4" />
+                      <span>Send Direct Message</span>
                     </>
                   )}
                 </button>
@@ -4283,145 +4032,235 @@ service cloud.firestore {
         </div>
       )}
 
-      {/* MODAL 6: COMPOSE DIRECT MESSAGE TO USER MODAL */}
-      {messageModalOpen && (
+      {/* MODAL 6: ADMIN USER PASSWORD RESET & VIEW */}
+      {passwordModalUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
           <div className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold">
-                  <Mail className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Send Direct Message</h3>
-                  <span className="text-[11px] text-slate-400">
-                    Appears in user's dashboard under "Admin Messages"
-                  </span>
-                </div>
+                <KeyRound className="w-5 h-5 text-amber-400" />
+                <h3 className="text-sm font-bold text-white">
+                  Manage Password: @{passwordModalUser.username}
+                </h3>
               </div>
               <button
-                onClick={() => setMessageModalOpen(false)}
+                type="button"
+                onClick={() => setPasswordModalUser(null)}
                 className="text-slate-400 hover:text-white p-1"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSendMessageToUser} className="space-y-4">
-              {/* Recipient */}
+            <div className="p-3 bg-slate-950 rounded-xl text-xs space-y-1 border border-slate-800">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Recipient User
-                </label>
-                {messageTargetUser ? (
-                  <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-bold text-white">@{messageTargetUser.username}</span>
-                      <span className="text-[11px] text-slate-400 ml-2">({messageTargetUser.email})</span>
-                    </div>
+                <span className="text-slate-500">Username: </span>
+                <strong className="text-white">@{passwordModalUser.username}</strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Email: </span>
+                <span className="text-slate-300">{passwordModalUser.email}</span>
+              </div>
+              <div>
+                <span className="text-slate-500">Wallet Balance: </span>
+                <span className="text-emerald-400 font-mono font-bold">Rs. {passwordModalUser.walletBalance} PKR</span>
+              </div>
+              {passwordModalUser.plainPassword && (
+                <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                  <span className="text-slate-400">Saved Password:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-amber-300 bg-slate-900 px-2 py-0.5 rounded">
+                      {showModalPassword ? passwordModalUser.plainPassword : '••••••••'}
+                    </span>
                     <button
                       type="button"
-                      onClick={() => setMessageTargetUser(null)}
-                      className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+                      onClick={() => setShowModalPassword(prev => !prev)}
+                      className="text-slate-400 hover:text-white p-1"
+                      title={showModalPassword ? 'Hide' : 'Reveal'}
                     >
-                      Change
+                      {showModalPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                     </button>
                   </div>
-                ) : (
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      const u = usersList.find(item => item.id === e.target.value);
-                      if (u) setMessageTargetUser(u);
-                    }}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="">-- Choose User Recipient --</option>
-                    {usersList.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        @{u.username} ({u.email})
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+                </div>
+              )}
+            </div>
 
-              {/* Title */}
+            <form onSubmit={handleUpdateUserPasswordByAdmin} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Message Subject / Title
+                  Set New Password (min 6 characters)
                 </label>
                 <input
                   type="text"
                   required
-                  value={msgTitle}
-                  onChange={(e) => setMsgTitle(e.target.value)}
-                  placeholder="e.g. Important instructions for your account"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                  minLength={6}
+                  value={adminNewPasswordInput}
+                  onChange={(e) => setAdminNewPasswordInput(e.target.value)}
+                  placeholder="Enter new strong password..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
                 />
               </div>
 
-              {/* Message Body */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Message Content
-                </label>
-                <textarea
-                  rows={3}
-                  required
-                  value={msgBody}
-                  onChange={(e) => setMsgBody(e.target.value)}
-                  placeholder="Type your message for this user here..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-normal"
-                />
-              </div>
-
-              {/* Priority */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Priority Tag
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['normal', 'high', 'urgent'] as const).map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setMsgPriority(p)}
-                      className={`py-1.5 text-xs font-bold rounded-lg border transition cursor-pointer capitalize ${
-                        msgPriority === p
-                          ? p === 'urgent'
-                            ? 'bg-rose-600/30 border-rose-500 text-rose-300'
-                            : p === 'high'
-                              ? 'bg-amber-600/30 border-amber-500 text-amber-300'
-                              : 'bg-indigo-600/30 border-indigo-500 text-indigo-300'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex gap-2 justify-end pt-2">
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setMessageModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-bold rounded-xl"
+                  onClick={() => setPasswordModalUser(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={isSendingMessage}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  disabled={isUpdatingUserPassword}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 cursor-pointer"
                 >
-                  {isSendingMessage ? (
+                  {isUpdatingUserPassword ? (
                     <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
                     <>
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Send Direct Message</span>
+                      <Check className="w-4 h-4" />
+                      <span>Save New Password</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7: DELETE USER ACCOUNT CONFIRMATION */}
+      {deleteUserModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-600/10 border border-rose-500/20 text-rose-400 flex items-center justify-center font-bold">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Delete User Account</h3>
+                <p className="text-xs text-slate-400">This action cannot be undone</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+              Are you sure you want to permanently delete user <strong className="text-rose-400">@{deleteUserModal.username}</strong> ({deleteUserModal.email})?
+              All order history and wallet balance (<strong className="text-emerald-400">Rs. {deleteUserModal.walletBalance} PKR</strong>) will be removed.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteUserModal(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingUser}
+                onClick={handleDeleteUserByAdmin}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                {isDeletingUser ? (
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Confirm Delete</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 8: TOTAL LIFETIME BALANCE ADJUSTMENT */}
+      {totalBalanceModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Wallet className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-sm font-bold text-white">Adjust Lifetime Balance Added Stat</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTotalBalanceModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-950 rounded-xl text-xs flex justify-between border border-slate-800">
+              <span className="text-slate-400">Current Counter Stat:</span>
+              <strong className="text-emerald-400 font-mono text-sm">
+                Rs. {(totalLifetimeBalanceAdded || 0).toLocaleString()} PKR
+              </strong>
+            </div>
+
+            <form onSubmit={handleAdjustTotalLifetimeBalance} className="space-y-4">
+              <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-950 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setTotalBalanceMode('deduct')}
+                  className={`py-1.5 text-xs font-bold rounded-lg ${totalBalanceMode === 'deduct' ? 'bg-rose-600 text-white' : 'text-slate-400'}`}
+                >
+                  - Deduct
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTotalBalanceMode('set')}
+                  className={`py-1.5 text-xs font-bold rounded-lg ${totalBalanceMode === 'set' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
+                >
+                  Set Total
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTotalBalanceMode('reset')}
+                  className={`py-1.5 text-xs font-bold rounded-lg ${totalBalanceMode === 'reset' ? 'bg-amber-600 text-white' : 'text-slate-400'}`}
+                >
+                  Reset to 0
+                </button>
+              </div>
+
+              {totalBalanceMode !== 'reset' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Amount (PKR)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    required
+                    value={totalBalanceInput}
+                    onChange={(e) => setTotalBalanceInput(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setTotalBalanceModalOpen(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAdjustingTotal}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isAdjustingTotal ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>{totalBalanceMode === 'reset' ? 'Reset Counter to 0' : 'Update Counter'}</span>
                     </>
                   )}
                 </button>

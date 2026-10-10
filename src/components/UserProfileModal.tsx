@@ -36,7 +36,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showCurrentPass, setShowCurrentPass] = useState(false);
   const [showNewPass, setShowNewPass] = useState(false);
-
   const [liveWhatsapp, setLiveWhatsapp] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const cached = localStorage.getItem('fbstore_cached_whatsapp');
@@ -119,7 +118,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   };
 
   const handleContactWhatsApp = () => {
-    const text = encodeURIComponent(`Assalam-o-Alaikum Admin! I need help with my FBStore account @${user.username}.`);
+    const text = encodeURIComponent(`Hello Admin, I need assistance with my FBStore account @${user.username}.`);
     const cleanNumber = (liveWhatsapp || whatsappNumber).replace(/\D/g, '');
     window.open(`https://wa.me/${cleanNumber}?text=${text}`, '_blank');
   };
@@ -156,7 +155,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             </span>
             <strong className="text-slate-900 dark:text-white font-mono">@{user.username}</strong>
           </div>
-
           <div className="flex items-center justify-between">
             <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
               <Mail className="w-3.5 h-3.5 text-sky-500" />
@@ -164,7 +162,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             </span>
             <span className="text-slate-700 dark:text-slate-300 font-mono text-[11.5px]">{user.email}</span>
           </div>
-
           <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
             <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
               <Wallet className="w-3.5 h-3.5 text-emerald-500" />
@@ -183,7 +180,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             <span>{errorMsg}</span>
           </div>
         )}
-
         {successMsg && (
           <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-300">
             <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
@@ -286,7 +282,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             <ExternalLink className="w-3 h-3" />
           </button>
         </div>
-
       </div>
     </div>
   );

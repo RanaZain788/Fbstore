@@ -11,12 +11,15 @@ export interface User {
   createdAt: string;
 }
 
+export type AccountCategory = 'simple' | 'verified';
+
 export interface FbIdStockItem {
   id: string;
   rawLine: string; // "UID:Password" or "UID:Password:Cookie"
   uid: string;
   password: string;
   cookie?: string; // Optional session cookies / access tokens for the account
+  category?: AccountCategory; // 'simple' (default) or 'verified'
   status: 'available' | 'sold';
   soldToUserId?: string;
   soldToUsername?: string;
@@ -29,6 +32,7 @@ export interface PurchaseAccountItem {
   uid: string;
   password: string;
   cookie?: string;
+  category?: AccountCategory;
   rawLine?: string;
 }
 
@@ -37,6 +41,7 @@ export interface PurchaseOrder {
   userId: string;
   username: string;
   quantity: number;
+  category?: AccountCategory;
   pricePerId: number;
   totalPrice: number;
   ids: string[]; // List of "UID:Password"
@@ -74,7 +79,15 @@ export interface SmtpConfig {
 
 export interface StoreSettings {
   siteName: string;
-  pricePerId: number; // Default: 12 PKR
+  pricePerId: number; // Backward compatibility (mirrors simple)
+  pricePerIdSimple: number; // Default: 12 PKR
+  pricePerIdVerified: number; // Default: 25 PKR
+  simpleAccountsEnabled: boolean; // Toggle Simple accounts box in store
+  verifiedAccountsEnabled: boolean; // Toggle Verified accounts box in store
+  simpleOfferEnabled: boolean; // Toggle Offer effect on Simple accounts box
+  simpleOfferMessage?: string; // Optional offer text e.g. "Weekend Special - 20% OFF"
+  verifiedOfferEnabled: boolean; // Toggle Offer effect on Verified accounts box
+  verifiedOfferMessage?: string; // Optional offer text e.g. "High Quality Blue Badge IDs on Sale"
   whatsappNumber: string;
   adminUsername: string; // Default: arslan481
   adminPassword: string; // Default: Zain786081@&#
@@ -151,5 +164,19 @@ export interface NotificationItem {
   title: string;
   message: string;
   read: boolean;
+  createdAt: string;
+}
+
+export type FeedbackType = 'feature_request' | 'pricing_issue' | 'bug_report' | 'general';
+
+export interface CustomerFeedback {
+  id: string;
+  userId?: string;
+  username?: string;
+  email?: string;
+  type: FeedbackType;
+  subject: string;
+  message: string;
+  status: 'new' | 'reviewed' | 'resolved';
   createdAt: string;
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wallet, PlusCircle, LogOut, Sun, Moon, User as UserIcon } from 'lucide-react';
+import { Wallet, PlusCircle, LogOut, Sun, Moon, User as UserIcon, MessageSquarePlus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
@@ -79,6 +79,17 @@ export const UserNavbar: React.FC<UserNavbarProps> = ({
             </button>
           </div>
 
+          {/* Customer Feedback Button */}
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('fbstore_open_feedback'))}
+            className="flex items-center gap-1 text-[11px] sm:text-xs text-purple-700 dark:text-purple-300 font-semibold px-2 sm:px-2.5 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 transition cursor-pointer shrink-0"
+            title="Feedback & Feature Suggestions"
+          >
+            <MessageSquarePlus className="w-3.5 h-3.5 text-purple-500" />
+            <span className="hidden sm:inline">Feedback</span>
+          </button>
+
           {/* User Profile & Password Change Button */}
           <button
             type="button"
@@ -99,7 +110,6 @@ export const UserNavbar: React.FC<UserNavbarProps> = ({
           >
             <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </button>
-
         </div>
       </div>
     </header>

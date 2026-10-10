@@ -10,6 +10,8 @@ export interface User {
   plainPassword?: string;
 }
 
+export type AccountCategory = 'simple' | 'verified';
+
 export type AnnouncementType = 'info' | 'alert' | 'warning' | 'success' | 'urgent' | 'offer';
 
 export interface Announcement {
@@ -58,6 +60,7 @@ export interface FbIdStockItem {
   uid: string;
   password: string;
   cookie?: string;
+  category?: AccountCategory; // 'simple' | 'verified'
   status: 'available' | 'sold';
   soldToUserId?: string;
   soldToUsername?: string;
@@ -70,6 +73,7 @@ export interface PurchaseAccountItem {
   uid: string;
   password: string;
   cookie?: string;
+  category?: AccountCategory;
   rawLine?: string;
 }
 
@@ -78,6 +82,7 @@ export interface PurchaseOrder {
   userId: string;
   username: string;
   quantity: number;
+  category?: AccountCategory;
   pricePerId: number;
   totalPrice: number;
   ids: string[];
@@ -116,6 +121,14 @@ export interface SmtpConfig {
 export interface StoreSettings {
   siteName: string;
   pricePerId: number;
+  pricePerIdSimple: number;
+  pricePerIdVerified: number;
+  simpleAccountsEnabled: boolean;
+  verifiedAccountsEnabled: boolean;
+  simpleOfferEnabled: boolean;
+  simpleOfferMessage?: string;
+  verifiedOfferEnabled: boolean;
+  verifiedOfferMessage?: string;
   whatsappNumber: string;
   adminUsername: string;
   adminPassword: string;
@@ -150,5 +163,19 @@ export interface NotificationItem {
   title: string;
   message: string;
   read: boolean;
+  createdAt: string;
+}
+
+export type FeedbackType = 'feature_request' | 'pricing_issue' | 'bug_report' | 'general';
+
+export interface CustomerFeedback {
+  id: string;
+  userId?: string;
+  username?: string;
+  email?: string;
+  type: FeedbackType;
+  subject: string;
+  message: string;
+  status: 'new' | 'reviewed' | 'resolved';
   createdAt: string;
 }

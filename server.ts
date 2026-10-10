@@ -5,7 +5,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { db, hashPassword, pendingRegistrations, PendingRegistration, passwordResetTokens } from './server/db';
-import { User, DepositRequest } from './server/types';
+import { User, DepositRequest, AccountCategory } from './server/types';
 import { sendOtpEmail, sendPasswordResetEmail, testSmtp, isSmtpConfigured } from './server/mailer';
 import { getFirebaseSyncStatus, syncAllToFirestore, pullDataFromFirestore } from './server/firebaseSync';
 
@@ -87,6 +87,7 @@ interface SSEClient {
   userId?: string;
   res: Response;
 }
+
 const sseClients: SSEClient[] = [];
 
 function broadcastEvent(eventName: string, data: any, targetUserId?: string) {
@@ -141,7 +142,6 @@ app.get('/api/events', (req: Request, res: Response) => {
 
   const clientId = crypto.randomUUID();
   const userId = (req.query.userId as string) || undefined;
-
   const client: SSEClient = { id: clientId, userId, res };
   sseClients.push(client);
 
@@ -181,9 +181,8 @@ app.post('/api/auth/send-otp', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Username or email is already registered.' });
   }
 
-  // Generate 6-digit OTP
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+  const expiresAt = Date.now() + 15 * 60 * 1000;
 
   pendingRegistrations.set(cleanEmail, {
     username: cleanUsername,
@@ -194,7 +193,6 @@ app.post('/api/auth/send-otp', async (req: Request, res: Response) => {
     expiresAt,
   });
 
-  // Send real email with 6-digit OTP code
   let emailSent = false;
   try {
     const mailRes = await sendOtpEmail(cleanEmail, cleanUsername, otp);
@@ -214,7 +212,7 @@ app.post('/api/auth/send-otp', async (req: Request, res: Response) => {
   });
 });
 
-// Step 2: Verify OTP & Create Account (Balance is strictly 0!)
+// Step 2: Verify OTP & Create Account
 app.post('/api/auth/verify-otp', (req: Request, res: Response) => {
   const { email, otp } = req.body;
   if (!email || !otp) {
@@ -223,7 +221,6 @@ app.post('/api/auth/verify-otp', (req: Request, res: Response) => {
 
   const cleanEmail = String(email).trim().toLowerCase();
   const pending = pendingRegistrations.get(cleanEmail);
-
   if (!pending) {
     return res.status(400).json({ error: 'Registration session not found or expired. Please register again.' });
   }
@@ -244,14 +241,13 @@ app.post('/api/auth/verify-otp', (req: Request, res: Response) => {
     passwordHash: pending.passwordHash,
     plainPassword: pending.plainPassword || '',
     role: 'user',
-    walletBalance: 0, // Zero balance!
+    walletBalance: 0,
     createdAt: new Date().toISOString(),
   };
 
   db.createUser(newUser);
   pendingRegistrations.delete(cleanEmail);
 
-  // Trigger personalized welcome message for new user
   try {
     const welcome = db.createWelcomeMessageForUser(newUser);
     if (welcome) {
@@ -260,12 +256,12 @@ app.post('/api/auth/verify-otp', (req: Request, res: Response) => {
   } catch (err) {}
 
   const token = generateAuthToken(newUser.id);
-
   const { passwordHash, ...safeUser } = newUser;
+
   return res.json({ success: true, user: safeUser, token });
 });
 
-// Step 3: Request Forgot Password OTP
+// Step 3: Forgot Password OTP
 app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
   const { identifier } = req.body;
   if (!identifier) {
@@ -274,14 +270,12 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
 
   const cleanIdentifier = String(identifier).trim().toLowerCase();
   const user = db.getUserByLogin(cleanIdentifier);
-
   if (!user) {
     return res.status(404).json({ error: 'No account found with this email or username.' });
   }
 
-  // Generate 6-digit Reset OTP
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+  const expiresAt = Date.now() + 15 * 60 * 1000;
 
   passwordResetTokens.set(user.email.toLowerCase(), {
     username: user.username,
@@ -290,7 +284,6 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
     expiresAt,
   });
 
-  // Dispatch real password reset email
   let emailSent = false;
   try {
     const mailRes = await sendPasswordResetEmail(user.email, user.username, otp);
@@ -299,7 +292,6 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
     console.warn('Password reset email dispatch notice:', err);
   }
 
-  // Mask email for privacy (e.g., h*****@gmail.com)
   const [localPart, domain] = user.email.split('@');
   const maskedLocal = localPart.length > 2 
     ? localPart[0] + '*'.repeat(localPart.length - 2) + localPart[localPart.length - 1]
@@ -318,7 +310,7 @@ app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
   });
 });
 
-// Step 4: Verify OTP & Reset Password
+// Step 4: Reset Password
 app.post('/api/auth/reset-password', (req: Request, res: Response) => {
   const { email, otp, newPassword } = req.body;
   if (!email || !otp || !newPassword) {
@@ -327,7 +319,6 @@ app.post('/api/auth/reset-password', (req: Request, res: Response) => {
 
   const cleanEmail = String(email).trim().toLowerCase();
   const resetToken = passwordResetTokens.get(cleanEmail);
-
   if (!resetToken) {
     return res.status(400).json({ error: 'Reset session not found or expired. Please request a new code.' });
   }
@@ -347,7 +338,6 @@ app.post('/api/auth/reset-password', (req: Request, res: Response) => {
 
   const newHash = hashPassword(String(newPassword));
   const updated = db.updateUserPassword(cleanEmail, newHash, String(newPassword));
-
   if (!updated) {
     return res.status(404).json({ error: 'Failed to update password. User not found.' });
   }
@@ -360,7 +350,7 @@ app.post('/api/auth/reset-password', (req: Request, res: Response) => {
   });
 });
 
-// Direct Registration Endpoint (Syncs with Firebase Auth)
+// Direct Registration Endpoint
 app.post('/api/auth/register', (req: Request, res: Response) => {
   const { username, email, password, firebaseUid } = req.body;
   if (!username || !email || !password) {
@@ -392,15 +382,15 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
     passwordHash: hashPassword(String(password)),
     plainPassword: String(password),
     role: 'user',
-    walletBalance: 0, // Strict 0 balance for all new users
+    walletBalance: 0,
     createdAt: new Date().toISOString(),
   };
 
   db.createUser(newUser);
+
   const token = `tok_${crypto.randomUUID()}`;
   tokenSessions.set(token, newUser.id);
 
-  // Trigger personalized welcome message for new user
   try {
     const welcome = db.createWelcomeMessageForUser(newUser);
     if (welcome) {
@@ -412,7 +402,7 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
   return res.json({ success: true, user: safeUser, token });
 });
 
-// Restore or Sync User Authenticated via Firebase
+// Restore / Sync Firebase User
 app.post('/api/auth/sync-firebase-user', (req: Request, res: Response) => {
   const { id, username, email, walletBalance, password } = req.body;
   if (!id || !username || !email) {
@@ -423,6 +413,7 @@ app.post('/api/auth/sync-firebase-user', (req: Request, res: Response) => {
   const cleanUsername = String(username).trim();
 
   let user = db.getUserById(id) || db.getUserByLogin(cleanEmail) || db.getUserByLogin(cleanUsername);
+
   if (!user) {
     user = {
       id,
@@ -436,7 +427,6 @@ app.post('/api/auth/sync-firebase-user', (req: Request, res: Response) => {
     };
     db.createUser(user);
   } else {
-    // Sync balance if Firestore holds updated balance
     if (typeof walletBalance === 'number' && walletBalance > user.walletBalance) {
       db.setUserBalance(user.id, walletBalance);
     }
@@ -447,11 +437,12 @@ app.post('/api/auth/sync-firebase-user', (req: Request, res: Response) => {
 
   const token = `tok_${crypto.randomUUID()}`;
   tokenSessions.set(token, user.id);
+
   const { passwordHash, ...safeUser } = user;
   return res.json({ success: true, user: safeUser, token });
 });
 
-// Direct Login (Username OR Email + Password)
+// Direct Login
 app.post('/api/auth/login', (req: Request, res: Response) => {
   const { login, password } = req.body;
   if (!login || !password) {
@@ -460,8 +451,8 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
 
   const cleanLogin = String(login).trim();
   const cleanPass = String(password);
-
   const settings = db.getSettings();
+
   if (
     (cleanLogin.toLowerCase() === settings.adminUsername.toLowerCase() || cleanLogin === 'admin@fbstore.com') && 
     cleanPass === settings.adminPassword
@@ -501,12 +492,11 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
   }
 
   const token = generateAuthToken(user.id);
-
   const { passwordHash, ...safeUser } = user;
   return res.json({ user: safeUser, token });
 });
 
-// Admin Dedicated Login at /admin
+// Admin Dedicated Login
 app.post('/api/admin/login', (req: Request, res: Response) => {
   const { username, password } = req.body;
   const settings = db.getSettings();
@@ -536,14 +526,15 @@ app.post('/api/admin/login', (req: Request, res: Response) => {
   return res.status(401).json({ error: 'Invalid admin username or password.' });
 });
 
-// Restore session without logout on rebuild / publish
+// Restore session
 app.post('/api/auth/restore-session', (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
   const token = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
   const verifiedId = token ? verifyAuthToken(token) : undefined;
-  const { id, username, email, walletBalance, role } = req.body;
 
+  const { id, username, email, walletBalance, role } = req.body;
   const targetId = verifiedId || id;
+
   if (!targetId || !username) {
     return res.status(400).json({ error: 'User identifier and username required.' });
   }
@@ -577,17 +568,32 @@ app.get('/api/auth/me', (req: Request, res: Response) => {
   return res.json({ user: safeUser });
 });
 
-// Store Info: Product Price (PKR), Stock, JazzCash/EasyPaisa Details & WhatsApp
+// Store Info: Product Prices, Categories, Stock, Offers, and Accounts
 app.get('/api/store/info', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   const settings = db.getSettings();
+  const availableSimple = db.getAvailableStockCount('simple');
+  const availableVerified = db.getAvailableStockCount('verified');
   const availableCount = db.getAvailableStockCount();
   const title = settings.jazzcashTitle || settings.easypaisaTitle || settings.accountTitle || 'Muhammad Arslan';
   const number = settings.jazzcashNumber || settings.easypaisaNumber || settings.accountNumber || '03064887388';
 
   return res.json({
     siteName: settings.siteName,
-    pricePerId: settings.pricePerId || 12,
+    pricePerId: settings.pricePerIdSimple || settings.pricePerId || 12,
+    pricePerIdSimple: settings.pricePerIdSimple || 12,
+    pricePerIdVerified: settings.pricePerIdVerified || 25,
     availableStockCount: availableCount,
+    availableStockSimple: availableSimple,
+    availableStockVerified: availableVerified,
+    simpleAccountsEnabled: settings.simpleAccountsEnabled !== false,
+    verifiedAccountsEnabled: settings.verifiedAccountsEnabled !== false,
+    simpleOfferEnabled: Boolean(settings.simpleOfferEnabled),
+    simpleOfferMessage: settings.simpleOfferMessage || '',
+    verifiedOfferEnabled: Boolean(settings.verifiedOfferEnabled),
+    verifiedOfferMessage: settings.verifiedOfferMessage || '',
     whatsappNumber: settings.whatsappNumber,
     easypaisaTitle: title,
     easypaisaNumber: number,
@@ -598,22 +604,27 @@ app.get('/api/store/info', (_req: Request, res: Response) => {
   });
 });
 
-// Buy Facebook Accounts by Quantity
+// Buy Facebook Accounts by Quantity and Category (Simple or Verified)
 app.post('/api/store/buy', requireAuth, (req: Request, res: Response) => {
   const user = (req as any).user as User;
-  const { quantity } = req.body;
-
+  const { quantity, category } = req.body;
   const qty = parseInt(quantity, 10);
+  const cat: AccountCategory = category === 'verified' ? 'verified' : 'simple';
+
   if (isNaN(qty) || qty <= 0) {
     return res.status(400).json({ error: 'Please enter a valid quantity.' });
   }
 
-  const result = db.purchaseStock(user.id, user.username, qty);
+  const result = db.purchaseStock(user.id, user.username, qty, cat);
   if (!result.success || !result.order) {
     return res.status(400).json({ error: result.error || 'Purchase failed.' });
   }
 
-  broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+  broadcastEvent('stock_updated', { 
+    availableCount: db.getAvailableStockCount(),
+    availableSimple: db.getAvailableStockCount('simple'),
+    availableVerified: db.getAvailableStockCount('verified')
+  }, 'all');
   broadcastEvent('wallet_updated', { userId: user.id, newBalance: user.walletBalance }, user.id);
 
   return res.json({
@@ -640,15 +651,15 @@ app.get('/api/deposits', requireAuth, (req: Request, res: Response) => {
   return res.json({ deposits });
 });
 
-// Deposits: Submit manual EasyPaisa deposit
+// Deposits: Submit manual EasyPaisa / JazzCash deposit
 app.post('/api/deposits', requireAuth, (req: Request, res: Response) => {
   const user = (req as any).user as User;
-  const {
-    amount,
-    senderAccountName,
-    senderAccountNumber,
-    transactionId,
-    screenshotUrl
+  const { 
+    amount, 
+    senderAccountName, 
+    senderAccountNumber, 
+    transactionId, 
+    screenshotUrl 
   } = req.body;
 
   const parsedAmount = Number(amount);
@@ -684,10 +695,11 @@ app.post('/api/deposits', requireAuth, (req: Request, res: Response) => {
   return res.status(201).json({ success: true, deposit });
 });
 
-// Deposits: Set Status to any state: approved, rejected, or pending (Admin only)
+// Deposits: Set Status
 app.put('/api/admin/deposits/:id/status', requireAdmin, (req: Request, res: Response) => {
   const adminUser = (req as any).user as User;
   const { status, reason } = req.body;
+
   if (!['pending', 'approved', 'rejected'].includes(status)) {
     return res.status(400).json({ error: 'Status must be pending, approved, or rejected.' });
   }
@@ -698,6 +710,7 @@ app.put('/api/admin/deposits/:id/status', requireAdmin, (req: Request, res: Resp
   }
 
   broadcastEvent('deposit_status_updated', { deposit, newBalance: user?.walletBalance, status }, 'all');
+
   if (status === 'approved' && user) {
     broadcastEvent('deposit_approved', { deposit, newBalance: user.walletBalance }, 'all');
     broadcastEvent('wallet_updated', { userId: user.id, newBalance: user.walletBalance }, 'all');
@@ -711,11 +724,10 @@ app.put('/api/admin/deposits/:id/status', requireAdmin, (req: Request, res: Resp
   return res.json({ success: true, deposit, userBalance: user?.walletBalance });
 });
 
-// Deposits: Approve (Admin only)
+// Deposits: Approve
 app.put('/api/deposits/:id/approve', requireAdmin, (req: Request, res: Response) => {
   const adminUser = (req as any).user as User;
   const { deposit, user } = db.setDepositStatus(req.params.id, 'approved', undefined, adminUser.username);
-
   if (!deposit || !user) {
     return res.status(404).json({ error: 'Deposit request not found.' });
   }
@@ -727,12 +739,11 @@ app.put('/api/deposits/:id/approve', requireAdmin, (req: Request, res: Response)
   return res.json({ success: true, deposit, userBalance: user.walletBalance });
 });
 
-// Deposits: Reject (Admin only)
+// Deposits: Reject
 app.put('/api/deposits/:id/reject', requireAdmin, (req: Request, res: Response) => {
   const adminUser = (req as any).user as User;
   const { reason } = req.body;
   const { deposit, user } = db.setDepositStatus(req.params.id, 'rejected', reason || 'Transaction could not be verified.', adminUser.username);
-
   if (!deposit) return res.status(404).json({ error: 'Deposit request not found.' });
 
   broadcastEvent('deposit_status_updated', { deposit, newBalance: user?.walletBalance, status: 'rejected' }, 'all');
@@ -740,6 +751,7 @@ app.put('/api/deposits/:id/reject', requireAdmin, (req: Request, res: Response) 
   if (user) {
     broadcastEvent('wallet_updated', { userId: user.id, newBalance: user.walletBalance }, 'all');
   }
+
   return res.json({ success: true, deposit });
 });
 
@@ -750,30 +762,38 @@ app.get('/api/admin/overview', requireAdmin, (_req: Request, res: Response) => {
   const settings = db.getSettings();
   const stock = db.getStock();
   const availableCount = stock.filter(i => i.status === 'available').length;
+  const availableSimple = db.getAvailableStockCount('simple');
+  const availableVerified = db.getAvailableStockCount('verified');
   const soldCount = stock.filter(i => i.status === 'sold').length;
   const pendingDepositsCount = db.getDeposits().filter(d => d.status === 'pending').length;
   const purchases = db.getAllPurchases();
+  const unreadFeedbacksCount = db.getFeedbacks().filter(f => f.status === 'new').length;
 
   return res.json({
     availableStock: availableCount,
+    availableSimple,
+    availableVerified,
     soldStock: soldCount,
     totalStockCount: stock.length,
     pendingDepositsCount,
     totalPurchasesCount: purchases.length,
-    pricePerId: settings.pricePerId,
+    unreadFeedbacksCount,
+    pricePerId: settings.pricePerIdSimple || settings.pricePerId,
+    pricePerIdSimple: settings.pricePerIdSimple || 12,
+    pricePerIdVerified: settings.pricePerIdVerified || 25,
     totalBalanceAddedLifetime: settings.totalBalanceAddedLifetime || 0,
     settings,
   });
 });
 
-// Reset Lifetime Added Balance Counter (Admin only)
+// Reset Lifetime Added Balance Counter
 app.post('/api/admin/balance-stats/reset', requireAdmin, (_req: Request, res: Response) => {
   db.resetTotalBalanceAdded();
   broadcastEvent('balance_stats_updated', { totalBalanceAddedLifetime: 0 }, 'admin');
   return res.json({ success: true, totalBalanceAddedLifetime: 0 });
 });
 
-// Adjust / Deduct Lifetime Added Balance Counter (Admin only)
+// Adjust / Deduct Lifetime Added Balance Counter
 app.post('/api/admin/balance-stats/adjust', requireAdmin, (req: Request, res: Response) => {
   const { deductAmount, newAmount } = req.body;
   let finalVal = 0;
@@ -784,54 +804,80 @@ app.post('/api/admin/balance-stats/adjust', requireAdmin, (req: Request, res: Re
   } else {
     return res.status(400).json({ error: 'Provide deductAmount or newAmount' });
   }
+
   broadcastEvent('balance_stats_updated', { totalBalanceAddedLifetime: finalVal }, 'admin');
   return res.json({ success: true, totalBalanceAddedLifetime: finalVal });
 });
 
-// Stock List
-app.get('/api/admin/stock', requireAdmin, (_req: Request, res: Response) => {
-  return res.json({ stock: db.getStock() });
+// Stock List (filter by category if requested)
+app.get('/api/admin/stock', requireAdmin, (req: Request, res: Response) => {
+  const cat = req.query.category as AccountCategory | undefined;
+  return res.json({ stock: db.getStock(cat) });
 });
 
-// Clear All Sold Stock Items (Admin only)
-app.delete('/api/admin/stock/sold/clear', requireAdmin, (_req: Request, res: Response) => {
-  const removed = db.deleteSoldStockItems();
-  broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+// Copy UIDs List (All / Available / Sold, optionally by category)
+app.get('/api/admin/stock/uids', requireAdmin, (req: Request, res: Response) => {
+  const cat = req.query.category as AccountCategory | undefined;
+  const status = req.query.status as ('all' | 'available' | 'sold') || 'all';
+  const uids = db.getUidsList(cat, status);
+  return res.json({ count: uids.length, uids, text: uids.join('\n') });
+});
+
+// Clear All Sold Stock Items (optionally by category)
+app.delete('/api/admin/stock/sold/clear', requireAdmin, (req: Request, res: Response) => {
+  const cat = req.query.category as AccountCategory | undefined;
+  const removed = db.deleteSoldStockItems(cat);
+  broadcastEvent('stock_updated', { 
+    availableCount: db.getAvailableStockCount(),
+    availableSimple: db.getAvailableStockCount('simple'),
+    availableVerified: db.getAvailableStockCount('verified')
+  }, 'all');
   return res.json({ success: true, removedCount: removed });
 });
 
-// Add Stock (Individual Account with Cookie, Structured Accounts Array, OR Bulk Lines)
+// Add Stock (Supports category: 'simple' | 'verified', Individual or Bulk Lines with Cookies)
 app.post('/api/admin/stock', requireAdmin, (req: Request, res: Response) => {
-  const { uid, password, cookie, text, lines, accounts } = req.body;
+  const { uid, password, cookie, text, lines, accounts, category } = req.body;
+  const cat: AccountCategory = category === 'verified' ? 'verified' : 'simple';
 
-  // 1. Structured Accounts Array (with separate cookie per account)
+  // 1. Structured Accounts Array
   if (Array.isArray(accounts) && accounts.length > 0) {
     const validAccounts = accounts.filter(a => a && a.uid && String(a.uid).trim());
     if (validAccounts.length === 0) {
       return res.status(400).json({ error: 'No valid accounts with UID found.' });
     }
-    const result = db.addStockAccounts(validAccounts);
-    broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+    const result = db.addStockAccounts(validAccounts, cat);
+    broadcastEvent('stock_updated', { 
+      availableCount: db.getAvailableStockCount(),
+      availableSimple: db.getAvailableStockCount('simple'),
+      availableVerified: db.getAvailableStockCount('verified')
+    }, 'all');
     return res.status(201).json({
       success: true,
       addedCount: result.addedCount,
       newTotalAvailable: db.getAvailableStockCount(),
+      newCategoryAvailable: db.getAvailableStockCount(cat),
     });
   }
 
   // 2. Single Individual Account Entry
   if (uid && password) {
-    const newItem = db.addSingleStockItem(String(uid), String(password), cookie ? String(cookie) : undefined);
-    broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+    const newItem = db.addSingleStockItem(String(uid), String(password), cookie ? String(cookie) : undefined, cat);
+    broadcastEvent('stock_updated', { 
+      availableCount: db.getAvailableStockCount(),
+      availableSimple: db.getAvailableStockCount('simple'),
+      availableVerified: db.getAvailableStockCount('verified')
+    }, 'all');
     return res.status(201).json({
       success: true,
       addedCount: 1,
       item: newItem,
       newTotalAvailable: db.getAvailableStockCount(),
+      newCategoryAvailable: db.getAvailableStockCount(cat),
     });
   }
 
-  // 3. Bulk Multi-Line Entry
+  // 3. Bulk Multi-Line Entry (Smart forgiving parser)
   let linesArray: string[] = [];
   if (Array.isArray(lines)) {
     linesArray = lines;
@@ -843,13 +889,19 @@ app.post('/api/admin/stock', requireAdmin, (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Please enter valid UID & Password, account list, or at least one line.' });
   }
 
-  const result = db.addStockLines(linesArray);
-  broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+  const result = db.addStockLines(linesArray, cat);
+  broadcastEvent('stock_updated', { 
+    availableCount: db.getAvailableStockCount(),
+    availableSimple: db.getAvailableStockCount('simple'),
+    availableVerified: db.getAvailableStockCount('verified')
+  }, 'all');
 
   return res.status(201).json({
     success: true,
     addedCount: result.addedCount,
+    items: result.items,
     newTotalAvailable: db.getAvailableStockCount(),
+    newCategoryAvailable: db.getAvailableStockCount(cat),
   });
 });
 
@@ -874,7 +926,7 @@ app.post('/api/admin/firebase-pull-now', requireAdmin, async (_req: Request, res
       return res.status(400).json({ success: false, error: 'Could not read from Firestore. Check permissions.' });
     }
     const importRes = db.importData(pulled);
-    broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+    broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() }, 'all');
     return res.json({ success: true, pulledCounts: importRes.stats });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Pull failed' });
@@ -892,9 +944,8 @@ app.post('/api/admin/db-import', requireAdmin, async (req: Request, res: Respons
     return res.status(400).json({ error: 'Invalid backup JSON data.' });
   }
   const importRes = db.importData(incoming);
-  broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+  broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() }, 'all');
 
-  // Auto-save everything to Firebase Firestore immediately
   let firestoreSync = null;
   try {
     firestoreSync = await syncAllToFirestore(db.getAllData());
@@ -905,31 +956,47 @@ app.post('/api/admin/db-import', requireAdmin, async (req: Request, res: Respons
   return res.json({ 
     success: importRes.success, 
     stats: importRes.stats,
-    firebaseSync,
+    firestoreSync,
     newTotalAvailable: db.getAvailableStockCount() 
   });
 });
 
-// Delete Single Stock Item (Works for available or sold)
+// Delete Single Stock Item
 app.delete('/api/admin/stock/:id', requireAdmin, (req: Request, res: Response) => {
   const ok = db.deleteStockItem(req.params.id);
   if (!ok) return res.status(404).json({ error: 'Stock item not found.' });
-  broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+  broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() }, 'all');
   return res.json({ success: true });
 });
 
-// Update Settings (Price, Admin Credentials, JazzCash, EasyPaisa, WhatsApp, SMTP)
+// Update Settings (Prices, Toggles, Offers, Admin Credentials, JazzCash, EasyPaisa, WhatsApp, SMTP)
 app.put('/api/admin/settings', requireAdmin, (req: Request, res: Response) => {
   const { 
-    pricePerId, whatsappNumber, adminUsername, adminPassword, 
+    pricePerId, pricePerIdSimple, pricePerIdVerified,
+    simpleAccountsEnabled, verifiedAccountsEnabled,
+    simpleOfferEnabled, simpleOfferMessage,
+    verifiedOfferEnabled, verifiedOfferMessage,
+    whatsappNumber, adminUsername, adminPassword, 
     easypaisaTitle, easypaisaNumber, 
     jazzcashTitle, jazzcashNumber,
     accountTitle, accountNumber,
-    smtp, smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom, smtpSecure 
+    smtp, smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom, smtpSecure
   } = req.body;
 
   const updates: any = {};
+  if (pricePerIdSimple !== undefined) updates.pricePerIdSimple = Number(pricePerIdSimple);
+  if (pricePerIdVerified !== undefined) updates.pricePerIdVerified = Number(pricePerIdVerified);
   if (pricePerId !== undefined) updates.pricePerId = Number(pricePerId);
+
+  if (simpleAccountsEnabled !== undefined) updates.simpleAccountsEnabled = Boolean(simpleAccountsEnabled);
+  if (verifiedAccountsEnabled !== undefined) updates.verifiedAccountsEnabled = Boolean(verifiedAccountsEnabled);
+
+  if (simpleOfferEnabled !== undefined) updates.simpleOfferEnabled = Boolean(simpleOfferEnabled);
+  if (simpleOfferMessage !== undefined) updates.simpleOfferMessage = String(simpleOfferMessage).trim();
+
+  if (verifiedOfferEnabled !== undefined) updates.verifiedOfferEnabled = Boolean(verifiedOfferEnabled);
+  if (verifiedOfferMessage !== undefined) updates.verifiedOfferMessage = String(verifiedOfferMessage).trim();
+
   if (whatsappNumber !== undefined) updates.whatsappNumber = String(whatsappNumber).trim();
   if (adminUsername) updates.adminUsername = String(adminUsername).trim();
   if (adminPassword) updates.adminPassword = String(adminPassword);
@@ -941,7 +1008,6 @@ app.put('/api/admin/settings', requireAdmin, (req: Request, res: Response) => {
     updates.jazzcashTitle = trimmedTitle;
     updates.accountTitle = trimmedTitle;
   }
-
   const newNumber = jazzcashNumber ?? easypaisaNumber ?? accountNumber;
   if (newNumber !== undefined) {
     const trimmedNumber = String(newNumber).trim();
@@ -950,7 +1016,6 @@ app.put('/api/admin/settings', requireAdmin, (req: Request, res: Response) => {
     updates.accountNumber = trimmedNumber;
   }
 
-  // Handle both nested smtp object and flattened fields
   if (smtp && typeof smtp === 'object') {
     updates.smtp = {
       host: smtp.host || 'smtp.gmail.com',
@@ -974,11 +1039,12 @@ app.put('/api/admin/settings', requireAdmin, (req: Request, res: Response) => {
 
   const newSettings = db.updateSettings(updates);
 
-  // Broadcast real-time updates so users and admin portals immediately sync without old defaults showing!
+  // Broadcast real-time updates to all screens immediately
   broadcastEvent('settings_updated', { settings: newSettings }, 'all');
-  if (updates.pricePerId !== undefined) {
-    broadcastEvent('price_updated', { pricePerId: newSettings.pricePerId }, 'all');
-  }
+  broadcastEvent('price_updated', { 
+    pricePerIdSimple: newSettings.pricePerIdSimple, 
+    pricePerIdVerified: newSettings.pricePerIdVerified 
+  }, 'all');
 
   return res.json({ success: true, settings: newSettings });
 });
@@ -994,7 +1060,7 @@ app.post('/api/admin/test-email', requireAdmin, async (req: Request, res: Respon
   }
 });
 
-// Admin Users List (for searching WhatsApp customers and direct balance management)
+// Admin Users List
 app.get('/api/admin/users', requireAdmin, (_req: Request, res: Response) => {
   const users = db.getUsersWithStats();
   return res.json({ users });
@@ -1023,7 +1089,6 @@ app.put('/api/admin/users/:id/balance', requireAdmin, (req: Request, res: Respon
     return res.status(500).json({ error: 'Failed to update balance.' });
   }
 
-  // Real-time broadcast to user's screen
   broadcastEvent('wallet_updated', { userId: targetUser.id, newBalance: updatedUser.walletBalance }, targetUser.id);
   broadcastEvent('deposit_approved', { 
     deposit: { 
@@ -1037,16 +1102,14 @@ app.put('/api/admin/users/:id/balance', requireAdmin, (req: Request, res: Respon
   return res.json({ success: true, user: safeUser, reason });
 });
 
-// Admin Change Any User's Password directly from Admin Panel
+// Admin Change Any User's Password
 app.put('/api/admin/users/:id/password', requireAdmin, (req: Request, res: Response) => {
   const { newPassword } = req.body;
   if (!newPassword || String(newPassword).length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
-
   const ok = db.updateUserPassword(req.params.id, hashPassword(String(newPassword)), String(newPassword));
   if (!ok) return res.status(404).json({ error: 'User not found.' });
-
   return res.json({ success: true, message: 'User password updated successfully.' });
 });
 
@@ -1058,25 +1121,22 @@ app.delete('/api/admin/users/:id', requireAdmin, (req: Request, res: Response) =
   if (user.role === 'admin') return res.status(400).json({ error: 'Cannot delete admin account.' });
 
   db.deleteUser(userId);
-
   for (const [t, uid] of tokenSessions.entries()) {
     if (uid === userId) tokenSessions.delete(t);
   }
-
   broadcastEvent('user_deleted', { userId }, 'all');
   return res.json({ success: true, message: 'User account deleted successfully.' });
 });
 
-// Admin Delete Deposit Request (Pending, Approved or Rejected)
+// Admin Delete Deposit Request
 app.delete('/api/admin/deposits/:id', requireAdmin, (req: Request, res: Response) => {
   const ok = db.deleteDeposit(req.params.id);
   if (!ok) return res.status(404).json({ error: 'Deposit request not found.' });
-
   broadcastEvent('deposit_deleted', { depositId: req.params.id }, 'all');
   return res.json({ success: true, message: 'Deposit request deleted successfully.' });
 });
 
-// Admin Database Backup Export (Downloads current users, balances, stock, settings)
+// Admin Database Backup Export
 app.get('/api/admin/database/backup', requireAdmin, (_req: Request, res: Response) => {
   const snapshot = db.getDatabaseSnapshot();
   res.setHeader('Content-Type', 'application/json');
@@ -1084,7 +1144,7 @@ app.get('/api/admin/database/backup', requireAdmin, (_req: Request, res: Respons
   return res.json(snapshot);
 });
 
-// Admin Database Restore Import (Restores all users, balances, stock, settings, and auto-syncs to Firestore)
+// Admin Database Restore Import
 app.post('/api/admin/database/restore', requireAdmin, async (req: Request, res: Response) => {
   const data = req.body;
   if (!data || typeof data !== 'object') {
@@ -1096,7 +1156,6 @@ app.post('/api/admin/database/restore', requireAdmin, async (req: Request, res: 
     return res.status(500).json({ error: 'Failed to restore database.' });
   }
 
-  // AUTO-SYNC ALL RESTORED DATA TO FIRESTORE IMMEDIATELY
   let firestoreResult: any = null;
   try {
     firestoreResult = await syncAllToFirestore(db.getAllData());
@@ -1104,7 +1163,7 @@ app.post('/api/admin/database/restore', requireAdmin, async (req: Request, res: 
     firestoreResult = { success: false, error: err?.message };
   }
 
-  broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+  broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() }, 'all');
   broadcastEvent('settings_updated', { settings: db.getSettings() }, 'all');
 
   return res.json({ 
@@ -1118,16 +1177,12 @@ app.post('/api/admin/database/restore', requireAdmin, async (req: Request, res: 
   });
 });
 
-// ==========================================
-// TUTORIAL VIDEO ("How to Login with Cookie")
-// ==========================================
-
 // Public: Get Tutorial Video info for users
 app.get('/api/tutorial-video', (_req: Request, res: Response) => {
   return res.json({ tutorial: db.getTutorialVideo() });
 });
 
-// Admin: Update Tutorial Video settings (title, videoUrl, instructions, enabled)
+// Admin: Update Tutorial Video settings
 app.put('/api/admin/tutorial-video', requireAdmin, (req: Request, res: Response) => {
   const { title, videoUrl, instructions, enabled } = req.body;
   const updatePayload: any = {};
@@ -1141,7 +1196,7 @@ app.put('/api/admin/tutorial-video', requireAdmin, (req: Request, res: Response)
   return res.json({ success: true, tutorial: updated });
 });
 
-// Admin: Upload Tutorial Video file (Base64 payload)
+// Admin: Upload Tutorial Video file
 app.post('/api/admin/tutorial-video/upload', requireAdmin, (req: Request, res: Response) => {
   const { filename, base64Data, contentType } = req.body;
   if (!base64Data) {
@@ -1149,25 +1204,21 @@ app.post('/api/admin/tutorial-video/upload', requireAdmin, (req: Request, res: R
   }
 
   try {
-    // Strip metadata header if present: "data:video/mp4;base64,..."
     const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
     const buffer = Buffer.from(cleanBase64, 'base64');
     
-    // Generate clean filename
     const ext = filename?.includes('.') ? filename.split('.').pop() : 'mp4';
     const savedName = `cookie_login_tutorial_${Date.now()}.${ext}`;
     const filePath = path.join(UPLOADS_DIR, savedName);
     
     fs.writeFileSync(filePath, buffer);
     const videoUrl = `/uploads/${savedName}`;
-
     const updated = db.updateTutorialVideo({ 
-      videoUrl,
-      enabled: true
+      videoUrl, 
+      enabled: true 
     });
 
     broadcastEvent('tutorial_video_updated', { tutorial: updated }, 'all');
-
     return res.json({ 
       success: true, 
       videoUrl, 
@@ -1179,7 +1230,7 @@ app.post('/api/admin/tutorial-video/upload', requireAdmin, (req: Request, res: R
   }
 });
 
-// User Self-Service Change Password (from Dashboard Profile)
+// User Self-Service Change Password
 app.put('/api/user/change-password', (req: Request, res: Response) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Authentication required. Please sign in.' });
@@ -1218,23 +1269,23 @@ app.get('/api/announcements', (req: Request, res: Response) => {
   return res.json({ announcements: list });
 });
 
-// 2. Marquee Ticker Settings (Public with user targeting support)
+// 2. Marquee Ticker Settings
 app.get('/api/marquee', (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   const user = getAuthUser(req);
   const requestedUserId = req.query.userId ? String(req.query.userId) : (user ? user.id : undefined);
   const marquee = db.getMarquee();
-  
-  // If marquee is user-targeted and user doesn't match, return disabled marquee for this user
   if (marquee.targetType === 'user' && marquee.targetUserId) {
     if (!requestedUserId || requestedUserId !== marquee.targetUserId) {
       return res.json({ marquee: { ...marquee, enabled: false } });
     }
   }
-
   return res.json({ marquee });
 });
 
-// 3. User Admin Messages (Private to logged in user)
+// 3. User Admin Messages
 app.get('/api/user/messages', (req: Request, res: Response) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Authentication required' });
@@ -1259,6 +1310,7 @@ app.post('/api/admin/announcements', requireAdmin, (req: Request, res: Response)
   if (!title || !message) {
     return res.status(400).json({ error: 'Title and message are required' });
   }
+
   const newAnn = db.addAnnouncement({
     title: String(title).trim(),
     message: String(message).trim(),
@@ -1270,14 +1322,15 @@ app.post('/api/admin/announcements', requireAdmin, (req: Request, res: Response)
     frequency: frequency === 'once_only' ? 'once_only' : 'every_refresh',
     active: active !== undefined ? Boolean(active) : true
   });
-  broadcastEvent('announcements_updated', { announcement: newAnn }, newAnn.targetUserId || 'all');
+
+  broadcastEvent('announcements_updated', { announcement: newAnn }, 'all');
   return res.json({ success: true, announcement: newAnn });
 });
 
 app.put('/api/admin/announcements/:id', requireAdmin, (req: Request, res: Response) => {
   const updated = db.updateAnnouncement(req.params.id, req.body);
   if (!updated) return res.status(404).json({ error: 'Announcement not found' });
-  broadcastEvent('announcements_updated', { announcement: updated }, updated.targetUserId || 'all');
+  broadcastEvent('announcements_updated', { announcement: updated }, 'all');
   return res.json({ success: true, announcement: updated });
 });
 
@@ -1287,7 +1340,7 @@ app.delete('/api/admin/announcements/:id', requireAdmin, (req: Request, res: Res
   return res.json({ success: ok });
 });
 
-// 5. Admin Marquee Ticker Settings
+// 5. Admin Marquee Ticker Settings - Instant live update to ALL clients
 app.post('/api/admin/marquee', requireAdmin, (req: Request, res: Response) => {
   const { enabled, text, speed, bgColor, textColor, badgeText, showBadge, targetType, targetUserId, targetUsername } = req.body;
   const updated = db.updateMarquee({
@@ -1302,11 +1355,12 @@ app.post('/api/admin/marquee', requireAdmin, (req: Request, res: Response) => {
     targetUserId: targetType === 'user' ? targetUserId : undefined,
     targetUsername: targetType === 'user' ? targetUsername : undefined,
   });
-  broadcastEvent('marquee_updated', { marquee: updated });
+
+  broadcastEvent('marquee_updated', { marquee: updated }, 'all');
   return res.json({ success: true, marquee: updated });
 });
 
-// 5.1 Admin Welcome Message Settings (Auto New User Greeting)
+// 5.1 Admin Welcome Message Settings
 app.get('/api/admin/welcome-settings', requireAdmin, (_req: Request, res: Response) => {
   return res.json({ welcomeConfig: db.getWelcomeMessageConfig() });
 });
@@ -1321,7 +1375,7 @@ app.put('/api/admin/welcome-settings', requireAdmin, (req: Request, res: Respons
   return res.json({ success: true, welcomeConfig: updated });
 });
 
-// 6. Admin Messages Management (Admin -> User direct inbox)
+// 6. Admin Messages Management
 app.get('/api/admin/messages', requireAdmin, (_req: Request, res: Response) => {
   return res.json({ messages: db.getAllAdminMessages() });
 });
@@ -1331,6 +1385,7 @@ app.post('/api/admin/messages', requireAdmin, (req: Request, res: Response) => {
   if (!userId || !title || !message) {
     return res.status(400).json({ error: 'User ID, title, and message are required' });
   }
+
   const newMsg = db.sendAdminMessage({
     userId,
     targetUsername,
@@ -1339,6 +1394,7 @@ app.post('/api/admin/messages', requireAdmin, (req: Request, res: Response) => {
     message: String(message).trim(),
     priority: priority || 'normal'
   });
+
   broadcastEvent('admin_message_received', { message: newMsg }, userId);
   return res.json({ success: true, message: newMsg });
 });
@@ -1348,7 +1404,7 @@ app.delete('/api/admin/messages/:id', requireAdmin, (req: Request, res: Response
   return res.json({ success: ok });
 });
 
-// 7. Sync Remote Firestore Users (Protects against data loss when server re-provisions)
+// 7. Sync Remote Firestore Users
 app.post('/api/admin/sync-firestore-users', requireAdmin, (req: Request, res: Response) => {
   const { users } = req.body;
   if (!Array.isArray(users)) {
@@ -1359,7 +1415,55 @@ app.post('/api/admin/sync-firestore-users', requireAdmin, (req: Request, res: Re
   return res.json({ success: true, count: allUsers.length, users: allUsers });
 });
 
+// ---------------- CUSTOMER FEEDBACK & SUGGESTIONS API ----------------
+
+// Submit Feedback (User or Guest)
+app.post('/api/feedback', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  const { type, subject, message, contactInfo, username } = req.body;
+
+  if (!message || !String(message).trim()) {
+    return res.status(400).json({ error: 'Feedback message is required.' });
+  }
+
+  const newFeedback = db.addFeedback({
+    userId: user?.id,
+    username: user?.username || (username ? String(username).trim() : 'Guest Customer'),
+    email: user?.email || (contactInfo ? String(contactInfo).trim() : ''),
+    type: ['feature_request', 'pricing_issue', 'bug_report', 'general'].includes(type) ? type : 'general',
+    subject: subject ? String(subject).trim() : 'Customer Feedback',
+    message: String(message).trim(),
+  });
+
+  broadcastEvent('feedback_received', { feedback: newFeedback }, 'admin');
+  return res.status(201).json({ success: true, feedback: newFeedback });
+});
+
+// Admin: Get all customer feedbacks
+app.get('/api/admin/feedbacks', requireAdmin, (_req: Request, res: Response) => {
+  return res.json({ feedbacks: db.getFeedbacks() });
+});
+
+// Admin: Update feedback status
+app.put('/api/admin/feedbacks/:id/status', requireAdmin, (req: Request, res: Response) => {
+  const { status } = req.body;
+  if (!['new', 'reviewed', 'resolved'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+  const updated = db.updateFeedbackStatus(req.params.id, status);
+  if (!updated) return res.status(404).json({ error: 'Feedback not found' });
+  return res.json({ success: true, feedback: updated });
+});
+
+// Admin: Delete feedback
+app.delete('/api/admin/feedbacks/:id', requireAdmin, (req: Request, res: Response) => {
+  const ok = db.deleteFeedback(req.params.id);
+  if (!ok) return res.status(404).json({ error: 'Feedback not found' });
+  return res.json({ success: true });
+});
+
 // ---------------- VITE / FRONTEND SERVING ----------------
+
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

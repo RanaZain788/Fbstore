@@ -6,45 +6,96 @@ import { useAuth } from '../context/AuthContext';
 
 export const MarqueeBanner: React.FC = () => {
   const { user } = useAuth();
-  const [marquee, setMarquee] = useState<MarqueeAnnouncement>({
-    enabled: true,
-    text: '⚡ Welcome to FBStore! Instant Facebook Accounts Delivery • 24/7 JazzCash & EasyPaisa Deposit • Guaranteed Fresh UIDs',
-    speed: 'normal',
-    showBadge: true,
-    targetType: 'all',
+  const [marquee, setMarquee] = useState<MarqueeAnnouncement>(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('fbstore_cached_marquee');
+      if (cached) {
+        try {
+          return JSON.parse(cached);
+        } catch (e) {}
+      }
+    }
+    return {
+      enabled: true,
+      text: '🚀 Welcome to FBStore! Instant Facebook Accounts Delivery | 24/7 JazzCash & EasyPaisa Deposit | Guaranteed Fresh UIDs',
+      speed: 'normal',
+      showBadge: true,
+      targetType: 'all',
+    };
   });
   const [isDismissed, setIsDismissed] = useState(false);
 
-  // 1. Initial Fetch
-  useEffect(() => {
-    const fetchMarquee = async () => {
-      try {
-        const url = user?.id ? `/api/marquee?userId=${encodeURIComponent(user.id)}` : '/api/marquee';
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.marquee) {
-            setMarquee(data.marquee);
-          }
+  // 1. Initial & Polling Fetch (Guarantees fresh marquee even if SSE has slight delay)
+  const fetchMarquee = async () => {
+    try {
+      const base = user?.id ? `/api/marquee?userId=${encodeURIComponent(user.id)}` : '/api/marquee';
+      const sep = base.includes('?') ? '&' : '?';
+      const url = `${base}${sep}_t=${Date.now()}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.marquee) {
+          setMarquee(data.marquee);
+          localStorage.setItem('fbstore_cached_marquee', JSON.stringify(data.marquee));
         }
-      } catch (e) {
-        // Fallback to defaults
       }
-    };
+    } catch (e) {
+      // Fallback
+    }
+  };
+
+  useEffect(() => {
     fetchMarquee();
+    // 2.5-second background polling with cache-busting ensures instant sync without page reload
+    const timer = setInterval(fetchMarquee, 2500);
+    return () => clearInterval(timer);
   }, [user?.id]);
 
-  // 2. Real-time Listeners (SSE + Firestore)
+  // 2. Real-time Listeners (BroadcastChannel + SSE + Firestore + Window Events + Storage)
   useEffect(() => {
-    // a. Firestore Realtime
+    // a. Custom local window event (when updated in the same window/admin)
+    const handleLocalUpdate = (e: any) => {
+      if (e.detail) {
+        setMarquee(e.detail);
+        setIsDismissed(false);
+      }
+    };
+    window.addEventListener('fbstore_marquee_updated', handleLocalUpdate);
+
+    // b. BroadcastChannel (for instant cross-tab / cross-window sync with 0 delay)
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel('fbstore_realtime_channel');
+      channel.onmessage = (event) => {
+        if (event.data?.type === 'marquee_updated' && event.data.marquee) {
+          setMarquee(event.data.marquee);
+          localStorage.setItem('fbstore_cached_marquee', JSON.stringify(event.data.marquee));
+          setIsDismissed(false);
+        }
+      };
+    } catch (e) {}
+
+    // c. Storage event (for multi-tab real-time sync)
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'fbstore_cached_marquee' && e.newValue) {
+        try {
+          setMarquee(JSON.parse(e.newValue));
+          setIsDismissed(false);
+        } catch (err) {}
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    // c. Firestore Realtime
     const unsub = firebaseService.subscribeToMarquee((updated) => {
       if (updated && typeof updated.enabled === 'boolean') {
         setMarquee(updated);
-        setIsDismissed(false); // Reset dismissal on new update
+        localStorage.setItem('fbstore_cached_marquee', JSON.stringify(updated));
+        setIsDismissed(false);
       }
     });
 
-    // b. SSE Stream
+    // d. SSE Stream (Instant push from server)
     let es: EventSource | null = null;
     try {
       const targetParam = user?.id ? `?userId=${user.id}` : '';
@@ -54,6 +105,7 @@ export const MarqueeBanner: React.FC = () => {
           const d = JSON.parse(e.data);
           if (d.marquee) {
             setMarquee(d.marquee);
+            localStorage.setItem('fbstore_cached_marquee', JSON.stringify(d.marquee));
             setIsDismissed(false);
           }
         } catch (err) {}
@@ -61,6 +113,8 @@ export const MarqueeBanner: React.FC = () => {
     } catch (err) {}
 
     return () => {
+      window.removeEventListener('fbstore_marquee_updated', handleLocalUpdate);
+      window.removeEventListener('storage', handleStorage);
       unsub();
       es?.close();
     };
