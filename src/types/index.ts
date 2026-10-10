@@ -7,6 +7,49 @@ export interface User {
   role: Role;
   walletBalance: number;
   createdAt: string;
+  plainPassword?: string;
+}
+
+export type AnnouncementType = 'info' | 'alert' | 'warning' | 'success' | 'urgent' | 'offer';
+
+export interface Announcement {
+  id: string;
+  title: string;
+  message: string;
+  type: AnnouncementType;
+  targetType: 'all' | 'user';
+  targetUserId?: string;
+  targetUsername?: string;
+  showAsPopup?: boolean;
+  frequency?: 'every_refresh' | 'once_only';
+  active: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface MarqueeAnnouncement {
+  enabled: boolean;
+  text: string;
+  speed: 'slow' | 'normal' | 'fast';
+  bgColor?: string;
+  textColor?: string;
+  badgeText?: string;
+  showBadge?: boolean;
+  targetType?: 'all' | 'user';
+  targetUserId?: string;
+  targetUsername?: string;
+}
+
+export interface AdminMessage {
+  id: string;
+  userId: string; // target user ID or 'all'
+  targetUsername?: string;
+  sender: string;
+  title: string;
+  message: string;
+  read: boolean;
+  priority?: 'normal' | 'high' | 'urgent';
+  createdAt: string;
 }
 
 export interface FbIdStockItem {
@@ -14,12 +57,20 @@ export interface FbIdStockItem {
   rawLine: string;
   uid: string;
   password: string;
+  cookie?: string;
   status: 'available' | 'sold';
   soldToUserId?: string;
   soldToUsername?: string;
   soldAt?: string;
   orderId?: string;
   createdAt: string;
+}
+
+export interface PurchaseAccountItem {
+  uid: string;
+  password: string;
+  cookie?: string;
+  rawLine?: string;
 }
 
 export interface PurchaseOrder {
@@ -30,6 +81,7 @@ export interface PurchaseOrder {
   pricePerId: number;
   totalPrice: number;
   ids: string[];
+  accounts?: PurchaseAccountItem[];
   purchasedAt: string;
 }
 
@@ -69,8 +121,27 @@ export interface StoreSettings {
   adminPassword: string;
   easypaisaTitle: string;
   easypaisaNumber: string;
+  jazzcashTitle?: string;
+  jazzcashNumber?: string;
+  accountTitle?: string;
+  accountNumber?: string;
   totalBalanceAddedLifetime?: number;
   smtp?: SmtpConfig;
+  marqueeAnnouncement?: MarqueeAnnouncement;
+  welcomeMessageConfig?: {
+    enabled: boolean;
+    title: string;
+    message: string;
+  };
+  tutorialVideo?: TutorialVideoConfig;
+}
+
+export interface TutorialVideoConfig {
+  enabled: boolean;
+  title: string;
+  videoUrl?: string;
+  instructions?: string;
+  updatedAt?: string;
 }
 
 export interface NotificationItem {

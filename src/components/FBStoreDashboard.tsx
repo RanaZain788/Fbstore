@@ -14,12 +14,16 @@ import {
   FileText,
   Wallet,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  Mail,
+  Cookie
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { PurchaseOrder, DepositRequest } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
+import { AnnouncementsView } from './AnnouncementsView';
+import { UserAdminMessages } from './UserAdminMessages';
 
 interface FBStoreDashboardProps {
   openDepositModalWithAmount: (amount?: number) => void;
@@ -33,7 +37,27 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
   const { user, token, updateBalanceLocally } = useAuth();
   const { showToast } = useNotifications();
 
-  const [activeTab, setActiveTab] = useState<'store' | 'purchases' | 'deposits'>('store');
+  const [activeTab, setActiveTab] = useState<'store' | 'purchases' | 'deposits' | 'messages'>('store');
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState<number>(0);
+
+  useEffect(() => {
+    // Check unread messages count for badge
+    const checkUnread = async () => {
+      const currentToken = token || localStorage.getItem('fbstore_auth_token');
+      if (!currentToken) return;
+      try {
+        const res = await fetch('/api/user/messages', {
+          headers: { Authorization: `Bearer ${currentToken}` }
+        });
+        if (res.ok) {
+          const d = await res.json();
+          const unread = (d.messages || []).filter((m: any) => !m.read).length;
+          setUnreadMessagesCount(unread);
+        }
+      } catch (e) {}
+    };
+    checkUnread();
+  }, [token, activeTab]);
 
   useEffect(() => {
     if (resetToStoreTrigger) {
@@ -282,9 +306,57 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
     }
   };
 
+  // Helper to extract clean account items (UID, Password, Cookie)
+  const getOrderAccounts = (order: PurchaseOrder) => {
+    if (order.accounts && order.accounts.length > 0) {
+      return order.accounts.map(acc => ({
+        uid: acc.uid,
+        password: acc.password,
+        cookie: acc.cookie || undefined,
+        rawLine: `${acc.uid}:${acc.password}`
+      }));
+    }
+    // Fallback to parsing order.ids
+    return (order.ids || []).map(line => {
+      let uid = '';
+      let password = '';
+      let cookie: string | undefined = undefined;
+      if (line.includes('|')) {
+        const parts = line.split('|');
+        uid = parts[0]?.trim() || '';
+        password = parts[1]?.trim() || '';
+        if (parts.length >= 3) cookie = parts.slice(2).join('|').trim() || undefined;
+      } else if (line.includes(':')) {
+        const parts = line.split(':');
+        uid = parts[0]?.trim() || '';
+        password = parts[1]?.trim() || '';
+        if (parts.length >= 3) cookie = parts.slice(2).join(':').trim() || undefined;
+      } else {
+        uid = line;
+        password = '';
+      }
+      return { uid, password, cookie, rawLine: `${uid}:${password}` };
+    });
+  };
+
   // Download .txt file
   const downloadTxtFile = (order: PurchaseOrder) => {
-    const textContent = order.ids.join('\n');
+    const accounts = getOrderAccounts(order);
+    const hasAnyCookie = accounts.some(a => Boolean(a.cookie));
+    
+    let textContent = '';
+    if (hasAnyCookie) {
+      textContent = accounts.map((a, idx) => {
+        let block = `[Account #${idx + 1}]\nUID: ${a.uid}\nPassword: ${a.password}`;
+        if (a.cookie) {
+          block += `\nCookie: ${a.cookie}`;
+        }
+        return block;
+      }).join('\n\n----------------------------------------\n\n');
+    } else {
+      textContent = accounts.map(a => `${a.uid}:${a.password}`).join('\n');
+    }
+
     const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -309,6 +381,9 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
   return (
     <div className="space-y-6">
       
+      {/* Real-time Announcements & Screen Notices from Admin */}
+      <AnnouncementsView />
+
       {/* Overview Top Card */}
       <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm dark:shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-colors">
         <div>
@@ -383,6 +458,23 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
         >
           <Clock className="w-4 h-4 shrink-0" />
           <span>Deposit History ({deposits.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('messages')}
+          className={`flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 relative ${
+            activeTab === 'messages'
+              ? 'bg-[#1877F2] text-white shadow-md shadow-blue-500/25'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
+          }`}
+        >
+          <Mail className="w-4 h-4 shrink-0" />
+          <span>Admin Messages</span>
+          {unreadMessagesCount > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
+              {unreadMessagesCount}
+            </span>
+          )}
         </button>
       </div>
 
@@ -554,21 +646,48 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
                   </div>
                 </div>
 
-                {/* Delivered IDs list */}
-                <div className="bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-mono text-xs text-slate-800 dark:text-slate-300 space-y-1.5 max-h-48 overflow-y-auto select-all">
-                  {order.ids.map((idLine, idx) => (
-                    <div key={idx} className="flex items-center justify-between hover:bg-slate-100 dark:hover:bg-slate-900/60 p-1 rounded">
-                      <span className="break-all">{idLine}</span>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(idLine);
-                          showToast('Copied', idLine, 'info');
-                        }}
-                        className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 ml-2 shrink-0 cursor-pointer"
-                        title="Copy single ID"
-                      >
-                        <Copy className="w-3 h-3" />
-                      </button>
+                {/* Delivered IDs list with copy credentials and copy cookie buttons */}
+                <div className="bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-xl p-3 space-y-2 max-h-56 overflow-y-auto">
+                  {getOrderAccounts(order).map((acc, idx) => (
+                    <div 
+                      key={idx} 
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/80 rounded-lg hover:border-blue-400/50 transition-colors"
+                    >
+                      <div className="font-mono text-xs text-slate-800 dark:text-slate-200 break-all flex items-center gap-1.5">
+                        <span className="text-slate-400 text-[10px]">#{idx + 1}</span>
+                        <span className="font-bold text-[#1877F2] dark:text-blue-400">{acc.uid}</span>
+                        <span className="text-slate-400">:</span>
+                        <span className="text-slate-700 dark:text-slate-300 font-semibold">{acc.password}</span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${acc.uid}:${acc.password}`);
+                            showToast('Copied Login', `${acc.uid}:${acc.password}`, 'info');
+                          }}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                          title="Copy UID:Password"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>Copy Login</span>
+                        </button>
+
+                        {/* Copy Cookie button: cookie is hidden from screen, only copied to clipboard */}
+                        {acc.cookie && (
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(acc.cookie!);
+                              showToast('Cookie Copied! 🍪', `Cookie for ID ${acc.uid} copied to clipboard!`, 'success');
+                            }}
+                            className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 rounded-md text-[11px] font-bold flex items-center gap-1 transition cursor-pointer shadow-xs"
+                            title="Copy Cookie (Hidden from screen)"
+                          >
+                            <Cookie className="w-3 h-3 text-amber-500" />
+                            <span>Copy Cookie</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -649,6 +768,11 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
             ))
           )}
         </div>
+      )}
+
+      {/* TAB 4: ADMIN MESSAGES */}
+      {activeTab === 'messages' && (
+        <UserAdminMessages />
       )}
 
       {/* POPUP 1: BUY MODAL */}
@@ -802,21 +926,48 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
               </p>
             </div>
 
-            {/* Delivered Box */}
-            <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-mono text-xs text-slate-800 dark:text-slate-200 space-y-1.5 max-h-52 overflow-y-auto select-all">
-              {recentOrder.ids.map((idLine, idx) => (
-                <div key={idx} className="p-1.5 bg-white dark:bg-slate-900/60 rounded border border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between">
-                  <span className="break-all">{idLine}</span>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(idLine);
-                      showToast('Copied', idLine, 'info');
-                    }}
-                    className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 ml-2 shrink-0 cursor-pointer"
-                    title="Copy"
-                  >
-                    <Copy className="w-3 h-3" />
-                  </button>
+            {/* Delivered Box with copy login and copy cookie buttons */}
+            <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 space-y-2 max-h-56 overflow-y-auto">
+              {getOrderAccounts(recentOrder).map((acc, idx) => (
+                <div 
+                  key={idx} 
+                  className="p-2 bg-white dark:bg-slate-900/60 rounded border border-slate-200/60 dark:border-slate-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                >
+                  <div className="font-mono text-xs text-slate-800 dark:text-slate-200 break-all flex items-center gap-1.5">
+                    <span className="text-slate-400 text-[10px]">#{idx + 1}</span>
+                    <span className="font-bold text-[#1877F2] dark:text-blue-400">{acc.uid}</span>
+                    <span className="text-slate-400">:</span>
+                    <span className="text-slate-700 dark:text-slate-300 font-semibold">{acc.password}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${acc.uid}:${acc.password}`);
+                        showToast('Copied Login', `${acc.uid}:${acc.password}`, 'info');
+                      }}
+                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                      title="Copy UID:Password"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>Copy Login</span>
+                    </button>
+
+                    {/* Copy Cookie button: cookie is hidden from screen, only copied to clipboard */}
+                    {acc.cookie && (
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(acc.cookie!);
+                          showToast('Cookie Copied! 🍪', `Cookie for ID ${acc.uid} copied to clipboard!`, 'success');
+                        }}
+                        className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 rounded text-[11px] font-bold flex items-center gap-1 transition cursor-pointer shadow-xs"
+                        title="Copy Cookie (Hidden from screen)"
+                      >
+                        <Cookie className="w-3 h-3 text-amber-500" />
+                        <span>Copy Cookie</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

@@ -7,7 +7,8 @@
       "passwordHash": "75c7a05fad97d676c1f201e715d28d9b5db29641e3336d0422592d6abaa262b4",
       "role": "admin",
       "walletBalance": 0,
-      "createdAt": "2026-10-05T17:58:55.839Z"
+      "createdAt": "2026-10-05T17:58:55.839Z",
+      "plainPassword": "Zain786081@&#"
     }
   ],
   "idsStock": [],

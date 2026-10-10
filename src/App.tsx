@@ -8,6 +8,8 @@ import { FBStoreDashboard } from './components/FBStoreDashboard';
 import { DepositModal } from './components/DepositModal';
 import { UserProfileModal } from './components/UserProfileModal';
 import { AdminPortal } from './components/AdminPortal';
+import { MarqueeBanner } from './components/MarqueeBanner';
+import { AnnouncementsView } from './components/AnnouncementsView';
 import { Lock, ShieldCheck } from 'lucide-react';
 
 function AppContent() {
@@ -45,27 +47,46 @@ function AppContent() {
 
   // 1. Separate Admin URL at /admin
   if (isAdminRoute) {
-    return <AdminPortal />;
+    return (
+      <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
+        <MarqueeBanner />
+        <AdminPortal />
+      </div>
+    );
   }
 
   // 2. Loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-[#080c14] text-slate-600 dark:text-slate-400 flex items-center justify-center text-xs transition-colors duration-200">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mr-2" />
-        Loading FBStore...
+      <div className="min-h-screen bg-slate-50 dark:bg-[#080c14] text-slate-600 dark:text-slate-400 flex flex-col items-center justify-center text-xs transition-colors duration-200">
+        <MarqueeBanner />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mr-2" />
+          Loading FBStore...
+        </div>
       </div>
     );
   }
 
-  // 3. Unauthenticated: Direct Login / Signup screen (Zero landing page)
+  // 3. Unauthenticated: Direct Login / Signup screen (Zero landing page) with Top Marquee Banner
   if (!user) {
-    return <UserLoginView />;
+    return (
+      <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#080c14] text-slate-800 dark:text-slate-100">
+        <MarqueeBanner />
+        <AnnouncementsView showPopupOnly={true} />
+        <div className="flex-1 flex flex-col">
+          <UserLoginView />
+        </div>
+      </div>
+    );
   }
 
   // 4. Authenticated User: Direct FBStore Dashboard
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#080c14] text-slate-800 dark:text-slate-100 flex flex-col selection:bg-blue-600 selection:text-white transition-colors duration-200">
+      {/* Real-time Top Marquee Ticker */}
+      <MarqueeBanner />
+
       {/* User Navbar (Zero Admin Mentions) */}
       <UserNavbar
         openDepositModal={() => {

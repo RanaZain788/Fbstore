@@ -149,3 +149,41 @@ html.light ::-webkit-scrollbar-thumb:hover {
 .animate-shake {
   animation: shake 0.35s ease-in-out;
 }
+
+/* Right-to-Left Continuous Marquee Ticker: Always starts from screen right to off left */
+@keyframes marqueeScrollFromRight {
+  0% {
+    transform: translateX(100vw);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+.animate-marquee-normal {
+  display: inline-block;
+  white-space: nowrap;
+  will-change: transform;
+  animation: marqueeScrollFromRight 22s linear infinite;
+}
+
+.animate-marquee-slow {
+  display: inline-block;
+  white-space: nowrap;
+  will-change: transform;
+  animation: marqueeScrollFromRight 34s linear infinite;
+}
+
+.animate-marquee-fast {
+  display: inline-block;
+  white-space: nowrap;
+  will-change: transform;
+  animation: marqueeScrollFromRight 14s linear infinite;
+}
+
+.marquee-container:hover .animate-marquee-normal,
+.marquee-container:hover .animate-marquee-slow,
+.marquee-container:hover .animate-marquee-fast {
+  animation-play-state: paused;
+}
+
