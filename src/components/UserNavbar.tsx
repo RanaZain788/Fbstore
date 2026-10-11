@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wallet, PlusCircle, LogOut, Sun, Moon, User as UserIcon, MessageSquarePlus } from 'lucide-react';
+import { Wallet, PlusCircle, LogOut, Sun, Moon, User as UserIcon, MessageSquarePlus, Mail } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
@@ -7,12 +7,16 @@ interface UserNavbarProps {
   openDepositModal: () => void;
   openProfileModal: () => void;
   onLogoClick?: () => void;
+  onOpenMessages?: () => void;
+  unreadMessagesCount?: number;
 }
 
 export const UserNavbar: React.FC<UserNavbarProps> = ({ 
   openDepositModal, 
   openProfileModal,
-  onLogoClick 
+  onLogoClick,
+  onOpenMessages,
+  unreadMessagesCount = 0
 }) => {
   const { user, logout } = useAuth();
   const { resolvedTheme, setMode } = useTheme();
@@ -78,6 +82,28 @@ export const UserNavbar: React.FC<UserNavbarProps> = ({
               <span className="hidden sm:inline">Deposit</span>
             </button>
           </div>
+
+          {/* Admin Direct Messages Inbox Button */}
+          {onOpenMessages && (
+            <button
+              type="button"
+              onClick={onOpenMessages}
+              className={`relative flex items-center gap-1.5 text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 py-1.5 rounded-xl border transition cursor-pointer shrink-0 ${
+                unreadMessagesCount > 0
+                  ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/25 ring-2 ring-blue-500/20'
+                  : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800'
+              }`}
+              title="Official Messages from Admin"
+            >
+              <Mail className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+              <span className="hidden sm:inline">Messages</span>
+              {unreadMessagesCount > 0 && (
+                <span className="min-w-4.5 h-4.5 px-1 rounded-full text-[10px] font-black bg-rose-500 text-white flex items-center justify-center animate-pulse shadow-xs">
+                  {unreadMessagesCount}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Customer Feedback Button */}
           <button

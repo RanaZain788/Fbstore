@@ -77,6 +77,23 @@ export const UserAdminMessages: React.FC = () => {
     } catch (e) {}
   };
 
+  const handleMarkAllAsRead = async () => {
+    const currentToken = token || localStorage.getItem('fbstore_auth_token');
+    if (!currentToken) return;
+
+    const unreadMsgs = messages.filter(m => !m.read);
+    setMessages(prev => prev.map(m => ({ ...m, read: true })));
+
+    for (const msg of unreadMsgs) {
+      try {
+        await fetch(`/api/user/messages/${msg.id}/read`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${currentToken}` }
+        });
+      } catch (e) {}
+    }
+  };
+
   const formatDateTime = (iso: string) => {
     try {
       const d = new Date(iso);
@@ -126,6 +143,17 @@ export const UserAdminMessages: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {unreadCount > 0 && (
+          <button
+            type="button"
+            onClick={handleMarkAllAsRead}
+            className="text-xs px-3 py-1.5 bg-blue-50 dark:bg-blue-950/40 text-[#1877F2] dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-xl font-bold flex items-center gap-1.5 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition cursor-pointer self-start sm:self-auto"
+          >
+            <Check className="w-3.5 h-3.5" />
+            <span>Mark All Read</span>
+          </button>
+        )}
       </div>
 
       {/* Messages List */}

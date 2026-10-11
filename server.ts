@@ -360,19 +360,18 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
   const cleanUsername = String(username).trim();
   const cleanEmail = String(email).trim().toLowerCase();
 
-  const existing = db.getUsers().find(u => 
-    u.username.toLowerCase() === cleanUsername.toLowerCase() || 
+  const existingUsername = db.getUsers().find(u => 
+    u.username.toLowerCase() === cleanUsername.toLowerCase()
+  );
+  if (existingUsername) {
+    return res.status(400).json({ error: 'Username already exists! Please choose another username.' });
+  }
+
+  const existingEmail = db.getUsers().find(u => 
     u.email.toLowerCase() === cleanEmail
   );
-  if (existing) {
-    if (existing.passwordHash === hashPassword(String(password))) {
-      db.recordUserPlainPassword(existing.id, String(password));
-      const token = `tok_${crypto.randomUUID()}`;
-      tokenSessions.set(token, existing.id);
-      const { passwordHash, ...safeUser } = existing;
-      return res.json({ success: true, user: safeUser, token });
-    }
-    return res.status(400).json({ error: 'Username or email already in use.' });
+  if (existingEmail) {
+    return res.status(400).json({ error: 'Email already exists! Please use another email or sign in.' });
   }
 
   const newUser: User = {
@@ -546,8 +545,8 @@ app.post('/api/auth/restore-session', (req: Request, res: Response) => {
       username: String(username).trim(),
       email: String(email || `${username}@fbstore.com`).trim(),
       passwordHash: hashPassword(`restored_${targetId}`),
-      role: role === 'admin' ? 'admin' : 'user',
-      walletBalance: typeof walletBalance === 'number' ? Math.max(0, walletBalance) : 0,
+      role: 'user', // Never allow client-side role escalation
+      walletBalance: 0, // Server-authoritative balance, never accept forged balance
       createdAt: new Date().toISOString()
     };
     db.createUser(user);
@@ -580,20 +579,26 @@ app.get('/api/store/info', (_req: Request, res: Response) => {
   const title = settings.jazzcashTitle || settings.easypaisaTitle || settings.accountTitle || 'Muhammad Arslan';
   const number = settings.jazzcashNumber || settings.easypaisaNumber || settings.accountNumber || '03064887388';
 
+  const isSimpleActive = settings.simpleAccountsEnabled !== false;
+  const isVerifiedActive = settings.verifiedAccountsEnabled !== false;
+
   return res.json({
     siteName: settings.siteName,
     pricePerId: settings.pricePerIdSimple || settings.pricePerId || 12,
     pricePerIdSimple: settings.pricePerIdSimple || 12,
     pricePerIdVerified: settings.pricePerIdVerified || 25,
-    availableStockCount: availableCount,
-    availableStockSimple: availableSimple,
-    availableStockVerified: availableVerified,
-    simpleAccountsEnabled: settings.simpleAccountsEnabled !== false,
-    verifiedAccountsEnabled: settings.verifiedAccountsEnabled !== false,
-    simpleOfferEnabled: Boolean(settings.simpleOfferEnabled),
-    simpleOfferMessage: settings.simpleOfferMessage || '',
-    verifiedOfferEnabled: Boolean(settings.verifiedOfferEnabled),
-    verifiedOfferMessage: settings.verifiedOfferMessage || '',
+    availableStockCount: (isSimpleActive ? availableSimple : 0) + (isVerifiedActive ? availableVerified : 0),
+    availableStockSimple: isSimpleActive ? availableSimple : 0,
+    availableStockVerified: isVerifiedActive ? availableVerified : 0,
+    simpleAccountsEnabled: isSimpleActive,
+    verifiedAccountsEnabled: isVerifiedActive,
+    simpleOfferEnabled: isSimpleActive && Boolean(settings.simpleOfferEnabled),
+    simpleOfferMessage: isSimpleActive ? (settings.simpleOfferMessage || '') : '',
+    simpleOfferColor: settings.simpleOfferColor || '#f59e0b',
+    verifiedOfferEnabled: isVerifiedActive && Boolean(settings.verifiedOfferEnabled),
+    verifiedOfferMessage: isVerifiedActive ? (settings.verifiedOfferMessage || '') : '',
+    verifiedOfferColor: settings.verifiedOfferColor || '#06b6d4',
+    boxesDisplayOrder: settings.boxesDisplayOrder || 'simple_first',
     whatsappNumber: settings.whatsappNumber,
     easypaisaTitle: title,
     easypaisaNumber: number,
@@ -613,6 +618,14 @@ app.post('/api/store/buy', requireAuth, (req: Request, res: Response) => {
 
   if (isNaN(qty) || qty <= 0) {
     return res.status(400).json({ error: 'Please enter a valid quantity.' });
+  }
+
+  const storeSettings = db.getSettings();
+  if (cat === 'simple' && storeSettings.simpleAccountsEnabled === false) {
+    return res.status(403).json({ error: 'Facebook Simple Accounts are currently disabled by store admin.' });
+  }
+  if (cat === 'verified' && storeSettings.verifiedAccountsEnabled === false) {
+    return res.status(403).json({ error: 'Facebook Verified Accounts are currently disabled by store admin.' });
   }
 
   const result = db.purchaseStock(user.id, user.username, qty, cat);
@@ -793,16 +806,25 @@ app.post('/api/admin/balance-stats/reset', requireAdmin, (_req: Request, res: Re
   return res.json({ success: true, totalBalanceAddedLifetime: 0 });
 });
 
-// Adjust / Deduct Lifetime Added Balance Counter
+// Adjust / Add / Deduct / Set Lifetime Added Balance Counter
 app.post('/api/admin/balance-stats/adjust', requireAdmin, (req: Request, res: Response) => {
-  const { deductAmount, newAmount } = req.body;
+  const { deductAmount, newAmount, addAmount, mode, amount } = req.body;
   let finalVal = 0;
-  if (typeof deductAmount === 'number') {
-    finalVal = db.deductTotalBalanceAdded(deductAmount);
-  } else if (typeof newAmount === 'number') {
-    finalVal = db.setTotalBalanceAdded(newAmount);
+  const numAmount = typeof amount === 'number' ? amount : parseFloat(amount);
+
+  if (mode === 'add' || typeof addAmount === 'number') {
+    const val = typeof addAmount === 'number' ? addAmount : (!isNaN(numAmount) ? numAmount : 0);
+    finalVal = db.addTotalBalanceAdded(val);
+  } else if (mode === 'deduct' || typeof deductAmount === 'number') {
+    const val = typeof deductAmount === 'number' ? deductAmount : (!isNaN(numAmount) ? numAmount : 0);
+    finalVal = db.deductTotalBalanceAdded(val);
+  } else if (mode === 'set' || typeof newAmount === 'number') {
+    const val = typeof newAmount === 'number' ? newAmount : (!isNaN(numAmount) ? numAmount : 0);
+    finalVal = db.setTotalBalanceAdded(val);
+  } else if (mode === 'reset') {
+    finalVal = db.resetTotalBalanceAdded();
   } else {
-    return res.status(400).json({ error: 'Provide deductAmount or newAmount' });
+    return res.status(400).json({ error: 'Please specify mode (add, deduct, set, reset) and amount.' });
   }
 
   broadcastEvent('balance_stats_updated', { totalBalanceAddedLifetime: finalVal }, 'admin');
@@ -974,8 +996,9 @@ app.put('/api/admin/settings', requireAdmin, (req: Request, res: Response) => {
   const { 
     pricePerId, pricePerIdSimple, pricePerIdVerified,
     simpleAccountsEnabled, verifiedAccountsEnabled,
-    simpleOfferEnabled, simpleOfferMessage,
-    verifiedOfferEnabled, verifiedOfferMessage,
+    simpleOfferEnabled, simpleOfferMessage, simpleOfferColor,
+    verifiedOfferEnabled, verifiedOfferMessage, verifiedOfferColor,
+    boxesDisplayOrder,
     whatsappNumber, adminUsername, adminPassword, 
     easypaisaTitle, easypaisaNumber, 
     jazzcashTitle, jazzcashNumber,
@@ -993,9 +1016,15 @@ app.put('/api/admin/settings', requireAdmin, (req: Request, res: Response) => {
 
   if (simpleOfferEnabled !== undefined) updates.simpleOfferEnabled = Boolean(simpleOfferEnabled);
   if (simpleOfferMessage !== undefined) updates.simpleOfferMessage = String(simpleOfferMessage).trim();
+  if (simpleOfferColor !== undefined) updates.simpleOfferColor = String(simpleOfferColor).trim();
 
   if (verifiedOfferEnabled !== undefined) updates.verifiedOfferEnabled = Boolean(verifiedOfferEnabled);
   if (verifiedOfferMessage !== undefined) updates.verifiedOfferMessage = String(verifiedOfferMessage).trim();
+  if (verifiedOfferColor !== undefined) updates.verifiedOfferColor = String(verifiedOfferColor).trim();
+
+  if (boxesDisplayOrder !== undefined) {
+    updates.boxesDisplayOrder = boxesDisplayOrder === 'verified_first' ? 'verified_first' : 'simple_first';
+  }
 
   if (whatsappNumber !== undefined) updates.whatsappNumber = String(whatsappNumber).trim();
   if (adminUsername) updates.adminUsername = String(adminUsername).trim();
@@ -1069,20 +1098,40 @@ app.get('/api/admin/users', requireAdmin, (_req: Request, res: Response) => {
 // Admin Direct Balance Adjustment
 app.put('/api/admin/users/:id/balance', requireAdmin, (req: Request, res: Response) => {
   const userId = req.params.id;
-  const { newBalance, addAmount, reason } = req.body;
+  const { newBalance, addAmount, deductAmount, mode, amount, reason } = req.body;
 
   let targetUser = db.getUserById(userId);
   if (!targetUser) {
     return res.status(404).json({ error: 'User not found.' });
   }
 
-  let updatedUser: User | undefined;
-  if (typeof newBalance === 'number') {
-    updatedUser = db.setUserBalance(userId, newBalance);
+  let finalAmount = typeof amount === 'number' ? amount : parseFloat(amount);
+  if (isNaN(finalAmount)) finalAmount = 0;
+
+  let effectiveDelta: number | undefined;
+  let effectiveNewBalance: number | undefined;
+
+  if (mode === 'add') {
+    effectiveDelta = Math.abs(finalAmount);
+  } else if (mode === 'deduct') {
+    effectiveDelta = -Math.abs(finalAmount);
+  } else if (mode === 'set') {
+    effectiveNewBalance = Math.max(0, finalAmount);
+  } else if (typeof newBalance === 'number') {
+    effectiveNewBalance = Math.max(0, newBalance);
+  } else if (typeof deductAmount === 'number') {
+    effectiveDelta = -Math.abs(deductAmount);
   } else if (typeof addAmount === 'number') {
-    updatedUser = db.updateUserBalance(userId, addAmount);
+    effectiveDelta = addAmount;
+  }
+
+  let updatedUser: User | undefined;
+  if (typeof effectiveNewBalance === 'number') {
+    updatedUser = db.setUserBalance(userId, effectiveNewBalance);
+  } else if (typeof effectiveDelta === 'number') {
+    updatedUser = db.updateUserBalance(userId, effectiveDelta);
   } else {
-    return res.status(400).json({ error: 'Please provide either newBalance or addAmount.' });
+    return res.status(400).json({ error: 'Please provide either newBalance, addAmount, or mode and amount.' });
   }
 
   if (!updatedUser) {
@@ -1279,8 +1328,11 @@ app.get('/api/marquee', (req: Request, res: Response) => {
   const marquee = db.getMarquee();
   if (marquee.targetType === 'user' && marquee.targetUserId) {
     if (!requestedUserId || requestedUserId !== marquee.targetUserId) {
-      return res.json({ marquee: { ...marquee, enabled: false } });
+      return res.json({ marquee: { enabled: false, text: '', badgeText: '', showBadge: false } });
     }
+  }
+  if (!marquee.enabled) {
+    return res.json({ marquee: { enabled: false, text: '', badgeText: '', showBadge: false } });
   }
   return res.json({ marquee });
 });
@@ -1289,14 +1341,14 @@ app.get('/api/marquee', (req: Request, res: Response) => {
 app.get('/api/user/messages', (req: Request, res: Response) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Authentication required' });
-  const messages = db.getAdminMessages(user.id);
+  const messages = db.getAdminMessages(user.id, user.username, user.email);
   return res.json({ messages });
 });
 
 app.post('/api/user/messages/:id/read', (req: Request, res: Response) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Authentication required' });
-  const ok = db.markAdminMessageRead(req.params.id, user.id);
+  const ok = db.markAdminMessageRead(req.params.id, user.id, user.username);
   return res.json({ success: ok });
 });
 
@@ -1383,19 +1435,31 @@ app.get('/api/admin/messages', requireAdmin, (_req: Request, res: Response) => {
 app.post('/api/admin/messages', requireAdmin, (req: Request, res: Response) => {
   const { userId, targetUsername, title, message, priority } = req.body;
   if (!userId || !title || !message) {
-    return res.status(400).json({ error: 'User ID, title, and message are required' });
+    return res.status(400).json({ error: 'Recipient (User ID or username), title, and message are required' });
   }
 
   const newMsg = db.sendAdminMessage({
     userId,
     targetUsername,
-    sender: 'Admin',
+    sender: 'FBStore Admin',
     title: String(title).trim(),
     message: String(message).trim(),
     priority: priority || 'normal'
   });
 
-  broadcastEvent('admin_message_received', { message: newMsg }, userId);
+  // Broadcast via SSE in real-time
+  if (newMsg.userId === 'all') {
+    broadcastEvent('admin_message_received', { message: newMsg }, 'all');
+  } else {
+    broadcastEvent('admin_message_received', { message: newMsg }, newMsg.userId);
+    if (newMsg.targetUsername) {
+      broadcastEvent('admin_message_received', { message: newMsg }, newMsg.targetUsername);
+    }
+  }
+
+  // Background sync to Firestore if configured
+  syncAllToFirestore(db.getAllData()).catch(() => {});
+
   return res.json({ success: true, message: newMsg });
 });
 

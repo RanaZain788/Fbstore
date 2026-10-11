@@ -21,7 +21,9 @@ import {
   Flame,
   MessageSquarePlus,
   ShieldCheck,
-  Star
+  Star,
+  Crown,
+  Zap
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { PurchaseOrder, DepositRequest, AccountCategory } from '../types';
@@ -67,17 +69,45 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
   const [availableStockSimple, setAvailableStockSimple] = useState<number>(0);
   const [availableStockVerified, setAvailableStockVerified] = useState<number>(0);
 
+  // Synchronous cache for store box visibility and offer styles
+  const getCachedBoxConfig = () => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = localStorage.getItem('fbstore_box_settings_v4');
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const initialBoxCache = getCachedBoxConfig();
+  const [storeSettingsReady, setStoreSettingsReady] = useState<boolean>(() => Boolean(initialBoxCache));
+
   // Box visibility controls (Admin can toggle each box)
-  const [simpleAccountsEnabled, setSimpleAccountsEnabled] = useState<boolean>(true);
-  const [verifiedAccountsEnabled, setVerifiedAccountsEnabled] = useState<boolean>(true);
+  // If cache exists, use cache. If no cache, initialize safely to false so disabled boxes NEVER flash on screen!
+  const [simpleAccountsEnabled, setSimpleAccountsEnabled] = useState<boolean>(() => {
+    if (initialBoxCache && typeof initialBoxCache.simpleAccountsEnabled === 'boolean') {
+      return initialBoxCache.simpleAccountsEnabled;
+    }
+    return false;
+  });
+  const [verifiedAccountsEnabled, setVerifiedAccountsEnabled] = useState<boolean>(() => {
+    if (initialBoxCache && typeof initialBoxCache.verifiedAccountsEnabled === 'boolean') {
+      return initialBoxCache.verifiedAccountsEnabled;
+    }
+    return false;
+  });
 
   // Offer effect controls
-  const [simpleOfferEnabled, setSimpleOfferEnabled] = useState<boolean>(false);
-  const [simpleOfferMessage, setSimpleOfferMessage] = useState<string>('');
-  const [verifiedOfferEnabled, setVerifiedOfferEnabled] = useState<boolean>(false);
-  const [verifiedOfferMessage, setVerifiedOfferMessage] = useState<string>('');
+  const [simpleOfferEnabled, setSimpleOfferEnabled] = useState<boolean>(() => Boolean(initialBoxCache?.simpleOfferEnabled));
+  const [simpleOfferMessage, setSimpleOfferMessage] = useState<string>(() => initialBoxCache?.simpleOfferMessage || '');
+  const [simpleOfferColor, setSimpleOfferColor] = useState<string>(() => initialBoxCache?.simpleOfferColor || '#f59e0b');
+  const [verifiedOfferEnabled, setVerifiedOfferEnabled] = useState<boolean>(() => Boolean(initialBoxCache?.verifiedOfferEnabled));
+  const [verifiedOfferMessage, setVerifiedOfferMessage] = useState<string>(() => initialBoxCache?.verifiedOfferMessage || '');
+  const [verifiedOfferColor, setVerifiedOfferColor] = useState<string>(() => initialBoxCache?.verifiedOfferColor || '#06b6d4');
+  const [boxesDisplayOrder, setBoxesDisplayOrder] = useState<'simple_first' | 'verified_first'>(() => initialBoxCache?.boxesDisplayOrder || 'simple_first');
 
-  const [whatsappNumber, setWhatsappNumber] = useState<string>('923001234567');
+  const [whatsappNumber, setWhatsappNumber] = useState<string>('+92 306 4887388');
   const [purchases, setPurchases] = useState<PurchaseOrder[]>([]);
   const [deposits, setDeposits] = useState<DepositRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,6 +121,46 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
   // Newly Unlocked Purchase Order Modal
   const [recentOrder, setRecentOrder] = useState<PurchaseOrder | null>(null);
   const [copiedSuccess, setCopiedSuccess] = useState(false);
+
+  // Security Protection: Prevent right-click inspect and DevTools shortcuts for customers
+  useEffect(() => {
+    if (user?.role === 'admin') return;
+
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // F12
+      if (e.key === 'F12' || e.keyCode === 123) {
+        e.preventDefault();
+        return false;
+      }
+      // Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C
+      if (e.ctrlKey && e.shiftKey && ['i', 'I', 'j', 'J', 'c', 'C'].includes(e.key)) {
+        e.preventDefault();
+        return false;
+      }
+      // Cmd+Option+I, Cmd+Option+J, Cmd+Option+C on Mac
+      if (e.metaKey && e.altKey && ['i', 'I', 'j', 'J', 'c', 'C'].includes(e.key)) {
+        e.preventDefault();
+        return false;
+      }
+      // Ctrl+U or Cmd+U (View Source)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'u' || e.key === 'U')) {
+        e.preventDefault();
+        return false;
+      }
+    };
+
+    window.addEventListener('contextmenu', handleContextMenu);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('contextmenu', handleContextMenu);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [user?.role]);
 
   const fetchStoreData = async () => {
     try {
@@ -110,13 +180,40 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
         setAvailableStockSimple(d.availableStockSimple || 0);
         setAvailableStockVerified(d.availableStockVerified || 0);
 
-        setSimpleAccountsEnabled(d.simpleAccountsEnabled !== false);
-        setVerifiedAccountsEnabled(d.verifiedAccountsEnabled !== false);
+        const isSimpleOn = d.simpleAccountsEnabled !== false;
+        const isVerifiedOn = d.verifiedAccountsEnabled !== false;
+        const isSimpleOfferOn = Boolean(d.simpleOfferEnabled);
+        const simpleOfferMsg = d.simpleOfferMessage || '';
+        const simpleClr = d.simpleOfferColor || '#f59e0b';
+        const isVerOfferOn = Boolean(d.verifiedOfferEnabled);
+        const verOfferMsg = d.verifiedOfferMessage || '';
+        const verClr = d.verifiedOfferColor || '#06b6d4';
+        const order = d.boxesDisplayOrder || 'simple_first';
 
-        setSimpleOfferEnabled(Boolean(d.simpleOfferEnabled));
-        setSimpleOfferMessage(d.simpleOfferMessage || '');
-        setVerifiedOfferEnabled(Boolean(d.verifiedOfferEnabled));
-        setVerifiedOfferMessage(d.verifiedOfferMessage || '');
+        setSimpleAccountsEnabled(isSimpleOn);
+        setVerifiedAccountsEnabled(isVerifiedOn);
+        setSimpleOfferEnabled(isSimpleOfferOn);
+        setSimpleOfferMessage(simpleOfferMsg);
+        setSimpleOfferColor(simpleClr);
+        setVerifiedOfferEnabled(isVerOfferOn);
+        setVerifiedOfferMessage(verOfferMsg);
+        setVerifiedOfferColor(verClr);
+        setBoxesDisplayOrder(order);
+        setStoreSettingsReady(true);
+
+        try {
+          localStorage.setItem('fbstore_box_settings_v4', JSON.stringify({
+            simpleAccountsEnabled: isSimpleOn,
+            verifiedAccountsEnabled: isVerifiedOn,
+            simpleOfferEnabled: isSimpleOfferOn,
+            simpleOfferMessage: simpleOfferMsg,
+            simpleOfferColor: simpleClr,
+            verifiedOfferEnabled: isVerOfferOn,
+            verifiedOfferMessage: verOfferMsg,
+            verifiedOfferColor: verClr,
+            boxesDisplayOrder: order,
+          }));
+        } catch (err) {}
 
         if (d.whatsappNumber) setWhatsappNumber(d.whatsappNumber);
       }
@@ -172,8 +269,13 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
 
   useEffect(() => {
     const handleOpenFeedback = () => setIsFeedbackOpen(true);
+    const handleOpenMessages = () => setActiveTab('messages');
     window.addEventListener('fbstore_open_feedback', handleOpenFeedback);
-    return () => window.removeEventListener('fbstore_open_feedback', handleOpenFeedback);
+    window.addEventListener('fbstore_open_messages', handleOpenMessages);
+    return () => {
+      window.removeEventListener('fbstore_open_feedback', handleOpenFeedback);
+      window.removeEventListener('fbstore_open_messages', handleOpenMessages);
+    };
   }, []);
 
   // Real-time updates via SSE
@@ -191,6 +293,20 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
         } catch (err) {}
       });
 
+      eventSource.addEventListener('admin_message_received', (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          if (d.message) {
+            setUnreadMessagesCount(prev => prev + 1);
+            showToast(
+              `📩 Admin: ${d.message.title}`,
+              d.message.message.substring(0, 90) + (d.message.message.length > 90 ? '...' : ''),
+              d.message.priority === 'urgent' ? 'error' : 'info'
+            );
+          }
+        } catch (err) {}
+      });
+
       eventSource.addEventListener('settings_updated', (e) => {
         try {
           const d = JSON.parse(e.data);
@@ -201,8 +317,28 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
             if (d.settings.verifiedAccountsEnabled !== undefined) setVerifiedAccountsEnabled(Boolean(d.settings.verifiedAccountsEnabled));
             if (d.settings.simpleOfferEnabled !== undefined) setSimpleOfferEnabled(Boolean(d.settings.simpleOfferEnabled));
             if (d.settings.simpleOfferMessage !== undefined) setSimpleOfferMessage(d.settings.simpleOfferMessage);
+            if (d.settings.simpleOfferColor !== undefined) setSimpleOfferColor(d.settings.simpleOfferColor);
             if (d.settings.verifiedOfferEnabled !== undefined) setVerifiedOfferEnabled(Boolean(d.settings.verifiedOfferEnabled));
             if (d.settings.verifiedOfferMessage !== undefined) setVerifiedOfferMessage(d.settings.verifiedOfferMessage);
+            if (d.settings.verifiedOfferColor !== undefined) setVerifiedOfferColor(d.settings.verifiedOfferColor);
+            if (d.settings.boxesDisplayOrder !== undefined) setBoxesDisplayOrder(d.settings.boxesDisplayOrder);
+            setStoreSettingsReady(true);
+
+            try {
+              const currentCache = getCachedBoxConfig() || {};
+              localStorage.setItem('fbstore_box_settings_v4', JSON.stringify({
+                ...currentCache,
+                ...(d.settings.simpleAccountsEnabled !== undefined ? { simpleAccountsEnabled: Boolean(d.settings.simpleAccountsEnabled) } : {}),
+                ...(d.settings.verifiedAccountsEnabled !== undefined ? { verifiedAccountsEnabled: Boolean(d.settings.verifiedAccountsEnabled) } : {}),
+                ...(d.settings.simpleOfferEnabled !== undefined ? { simpleOfferEnabled: Boolean(d.settings.simpleOfferEnabled) } : {}),
+                ...(d.settings.simpleOfferMessage !== undefined ? { simpleOfferMessage: d.settings.simpleOfferMessage } : {}),
+                ...(d.settings.simpleOfferColor !== undefined ? { simpleOfferColor: d.settings.simpleOfferColor } : {}),
+                ...(d.settings.verifiedOfferEnabled !== undefined ? { verifiedOfferEnabled: Boolean(d.settings.verifiedOfferEnabled) } : {}),
+                ...(d.settings.verifiedOfferMessage !== undefined ? { verifiedOfferMessage: d.settings.verifiedOfferMessage } : {}),
+                ...(d.settings.verifiedOfferColor !== undefined ? { verifiedOfferColor: d.settings.verifiedOfferColor } : {}),
+                ...(d.settings.boxesDisplayOrder !== undefined ? { boxesDisplayOrder: d.settings.boxesDisplayOrder } : {}),
+              }));
+            } catch (err) {}
           }
         } catch (err) {}
       });
@@ -271,6 +407,11 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
   // Handle Buy Action
   const handleConfirmPurchase = async () => {
     if (!token) return;
+    if ((buyCategory === 'simple' && !simpleAccountsEnabled) || (buyCategory === 'verified' && !verifiedAccountsEnabled)) {
+      showToast('Product Unavailable', 'This category is currently disabled by store admin.', 'error');
+      setShowBuyModal(false);
+      return;
+    }
     if (activeStock < buyQuantity) {
       showToast('Out of Stock', `Only ${activeStock} accounts currently available.`, 'error');
       return;
@@ -517,228 +658,410 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
       {activeTab === 'store' && (
         <div className="space-y-6">
 
-          {/* Fallback if both boxes are disabled by admin */}
-          {!simpleAccountsEnabled && !verifiedAccountsEnabled && (
+          {/* Skeleton while initial settings are resolving to prevent any flicker */}
+          {!storeSettingsReady && (
+            <div className="space-y-6 animate-pulse">
+              <div className="h-64 bg-slate-100 dark:bg-slate-900/60 rounded-3xl border border-slate-200 dark:border-slate-800" />
+            </div>
+          )}
+
+          {/* Fallback if both boxes are disabled by admin and settings are loaded */}
+          {storeSettingsReady && !simpleAccountsEnabled && !verifiedAccountsEnabled && (
             <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-10 text-center text-slate-500 text-xs">
               No products are currently available in the store. Please check back shortly.
             </div>
           )}
 
-          {/* ========================================================================= */}
-          {/* BOX 1: FACEBOOK SIMPLE ACCOUNTS */}
-          {/* ========================================================================= */}
-          {simpleAccountsEnabled && (
-            <div 
-              className={`relative rounded-3xl p-5 sm:p-7 transition-all duration-300 overflow-hidden ${
-                simpleOfferEnabled
-                  ? 'border-2 border-amber-400 dark:border-amber-400 bg-gradient-to-br from-amber-100/70 via-orange-50/80 to-amber-50/60 dark:from-amber-950/60 dark:via-slate-900 dark:to-orange-950/40 shadow-2xl ring-2 ring-amber-400/40 animate-offer-glow'
-                  : 'border border-blue-100 dark:border-slate-800 bg-gradient-to-br from-blue-50/70 via-white to-slate-50 dark:from-slate-900 dark:via-slate-900/95 dark:to-slate-950 shadow-md dark:shadow-2xl'
-              }`}
-            >
-              {/* Offer Banner if active */}
-              {simpleOfferEnabled && (
-                <div className="mb-4 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-black bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md animate-pulse">
-                  <Flame className="w-4 h-4" />
-                  <span>SPECIAL OFFER!</span>
-                  {simpleOfferMessage && (
-                    <span className="font-medium text-[11px] text-amber-100 border-l border-amber-300/40 pl-2">
-                      {simpleOfferMessage}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                
-                {/* Product Info */}
-                <div className="space-y-3 max-w-xl">
-                  {/* Stock Status Badge */}
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-white/90 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <span className={`w-2.5 h-2.5 rounded-full ${availableStockSimple > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                    <span className={availableStockSimple > 0 ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-rose-600 dark:text-rose-400 font-semibold'}>
-                      {availableStockSimple > 0 ? `${availableStockSimple} Simple Accounts in Stock` : 'Currently Out of Stock'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-[#1877F2] text-white flex items-center justify-center font-black text-xl shadow-lg shadow-blue-600/30 shrink-0">
-                      FB
-                    </div>
-                    <div>
-                      <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight font-['Space_Grotesk'] flex items-center gap-2">
-                        <span>Facebook Simple Accounts</span>
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-700">
-                          Standard
+          {/* RENDER PRODUCT BOXES ACCORDING TO ADMIN'S CHOSEN DISPLAY ORDER */}
+          {storeSettingsReady && (() => {
+            const renderSimpleBox = () => (
+              <div 
+                key="box-simple"
+                style={simpleOfferEnabled ? { 
+                  borderColor: simpleOfferColor, 
+                  boxShadow: `0 0 35px ${simpleOfferColor}30` 
+                } : undefined}
+                className={`relative rounded-3xl p-6 sm:p-8 transition-all duration-300 overflow-hidden ${
+                  simpleOfferEnabled
+                    ? 'border-2 bg-white dark:bg-[#0c121e] ring-4 ring-white/10'
+                    : 'border border-blue-100 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-md dark:shadow-xl'
+                }`}
+              >
+                {/* Special Offer Ambient Lighting & Badges */}
+                {simpleOfferEnabled && (
+                  <>
+                    <div 
+                      className="absolute -top-24 -right-24 w-72 h-72 rounded-full blur-3xl pointer-events-none" 
+                      style={{ background: `radial-gradient(circle, ${simpleOfferColor}35 0%, transparent 70%)` }}
+                    />
+                    <div 
+                      className="absolute -bottom-24 -left-24 w-72 h-72 rounded-full blur-3xl pointer-events-none" 
+                      style={{ background: `radial-gradient(circle, ${simpleOfferColor}25 0%, transparent 70%)` }}
+                    />
+                    
+                    {/* Top Integrated Promotional Ribbon */}
+                    <div 
+                      style={{ background: `linear-gradient(135deg, ${simpleOfferColor}, ${simpleOfferColor}ee)` }}
+                      className="relative z-10 -mx-6 -mt-6 sm:-mx-8 sm:-mt-8 mb-6 px-4 sm:px-6 py-2.5 text-white flex flex-wrap items-center justify-between gap-2 shadow-md"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0">
+                          <Flame className="w-4 h-4 text-white fill-white animate-bounce" />
+                        </div>
+                        <span className="font-extrabold text-xs sm:text-sm tracking-wide uppercase font-['Space_Grotesk']">
+                          Special Limited Offer Active
                         </span>
-                      </h3>
-                      <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-                        Fresh standard Facebook accounts with instant <code className="text-blue-600 dark:text-blue-400 font-bold bg-blue-50 dark:bg-blue-950/60 px-1 py-0.5 rounded">UID:Password</code> delivery & cookies.
-                      </p>
+                        {simpleOfferMessage && (
+                          <span className="hidden sm:inline-block px-2.5 py-0.5 rounded-full text-xs font-bold bg-white/20 backdrop-blur-xs text-white border border-white/25">
+                            {simpleOfferMessage}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider bg-black/25 px-2.5 py-1 rounded-full">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                        <span>Discount Live</span>
+                      </div>
+                    </div>
+
+                    {simpleOfferMessage && (
+                      <div 
+                        style={{ backgroundColor: `${simpleOfferColor}18`, borderColor: `${simpleOfferColor}40`, color: simpleOfferColor }}
+                        className="sm:hidden mb-4 p-2.5 rounded-xl border text-xs font-bold flex items-center gap-2"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 shrink-0" style={{ color: simpleOfferColor }} />
+                        <span>{simpleOfferMessage}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  
+                  {/* Product Info */}
+                  <div className="space-y-3 max-w-xl">
+                    {/* Stock Status Badge */}
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+                      <span className={`w-2.5 h-2.5 rounded-full ${availableStockSimple > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+                      <span className={availableStockSimple > 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-semibold'}>
+                        {availableStockSimple > 0 ? `${availableStockSimple} Simple Accounts in Stock` : 'Currently Out of Stock'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div 
+                        style={simpleOfferEnabled ? { backgroundColor: simpleOfferColor, boxShadow: `0 8px 20px -4px ${simpleOfferColor}55` } : undefined}
+                        className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl shadow-lg shrink-0 text-white ${
+                          simpleOfferEnabled ? '' : 'bg-[#1877F2] shadow-blue-600/30'
+                        }`}
+                      >
+                        FB
+                      </div>
+                      <div>
+                        <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight font-['Space_Grotesk'] flex items-center gap-2">
+                          <span>Facebook Simple Accounts</span>
+                          {simpleOfferEnabled ? (
+                            <span 
+                              style={{ backgroundColor: `${simpleOfferColor}20`, borderColor: `${simpleOfferColor}60`, color: simpleOfferColor }}
+                              className="text-xs px-2.5 py-0.5 rounded-full font-extrabold border flex items-center gap-1 shadow-xs"
+                            >
+                              <Sparkles className="w-3 h-3" />
+                              <span>HOT DEAL</span>
+                            </span>
+                          ) : (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-700">
+                              Standard
+                            </span>
+                          )}
+                        </h3>
+                        <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-0.5">
+                          Fresh standard Facebook accounts with instant <code className="text-blue-600 dark:text-blue-400 font-bold bg-blue-50 dark:bg-blue-950/60 px-1 py-0.5 rounded">UID:Password</code> delivery & cookies.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Features List */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 text-xs text-slate-700 dark:text-slate-300">
+                      <div className="flex items-center gap-1.5 p-2 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/90 dark:border-slate-800/80 shadow-xs">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span>Instant .txt file</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 p-2 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/90 dark:border-slate-800/80 shadow-xs">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <span>UID:Password & Cookie</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 p-2 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/90 dark:border-slate-800/80 shadow-xs">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span>EasyPaisa / JazzCash</span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Features List */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 text-xs text-slate-700 dark:text-slate-300">
-                    <div className="flex items-center gap-1.5 p-2 bg-white/80 dark:bg-slate-950/60 rounded-xl border border-slate-200/90 dark:border-slate-800/80 shadow-xs">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                      <span>Instant .txt file</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 p-2 bg-white/80 dark:bg-slate-950/60 rounded-xl border border-slate-200/90 dark:border-slate-800/80 shadow-xs">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                      <span>UID:Password & Cookie</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 p-2 bg-white/80 dark:bg-slate-950/60 rounded-xl border border-slate-200/90 dark:border-slate-800/80 shadow-xs">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                      <span>Manual Deposit (PKR)</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Price & Buy Action Box */}
-                <div className="bg-white dark:bg-slate-950/90 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 flex flex-col items-center justify-center text-center min-w-[240px] shrink-0 space-y-4 shadow-sm dark:shadow-xl transition-colors">
-                  <div>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 uppercase font-semibold block">Simple ID Price</span>
-                    <div className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white font-['Space_Grotesk'] tracking-tight mt-0.5">
-                      Rs. {pricePerIdSimple} <span className="text-xs font-bold text-slate-500 dark:text-slate-400">PKR</span>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    disabled={availableStockSimple <= 0}
-                    onClick={() => {
-                      setBuyCategory('simple');
-                      setBuyQuantity(1);
-                      setShowBuyModal(true);
-                    }}
-                    className={`w-full py-3 px-6 rounded-xl font-bold text-sm shadow-lg transition flex items-center justify-center gap-2 cursor-pointer ${
-                      availableStockSimple > 0
-                        ? 'bg-[#1877F2] hover:bg-blue-600 text-white shadow-blue-600/30'
-                        : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                  {/* Price & Buy Action Box */}
+                  <div 
+                    style={simpleOfferEnabled ? { 
+                      borderColor: `${simpleOfferColor}60`, 
+                      boxShadow: `0 8px 25px -5px ${simpleOfferColor}25` 
+                    } : undefined}
+                    className={`rounded-2xl p-5 sm:p-6 flex flex-col items-center justify-center text-center min-w-[240px] shrink-0 space-y-4 transition-colors ${
+                      simpleOfferEnabled
+                        ? 'bg-slate-50/70 dark:bg-slate-950/90 border shadow-lg'
+                        : 'bg-white dark:bg-slate-950/90 border border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-xl'
                     }`}
                   >
-                    <ShoppingBag className="w-4 h-4" />
-                    <span>{availableStockSimple > 0 ? 'Buy Simple Accounts' : 'Out of Stock'}</span>
-                  </button>
-
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {availableStockSimple > 0 ? 'Instant credential delivery' : 'Admin will restock soon'}
-                  </p>
-                </div>
-
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* BOX 2: FACEBOOK VERIFIED ACCOUNTS (NEW ULTRA COOL DESIGN) */}
-          {/* ========================================================================= */}
-          {verifiedAccountsEnabled && (
-            <div 
-              className={`relative rounded-3xl p-5 sm:p-7 transition-all duration-300 overflow-hidden ${
-                verifiedOfferEnabled
-                  ? 'border-2 border-cyan-400 dark:border-cyan-400 bg-gradient-to-br from-cyan-100/80 via-indigo-50/70 to-purple-100/80 dark:from-indigo-950/80 dark:via-purple-950/60 dark:to-cyan-950/50 shadow-2xl ring-2 ring-cyan-400/40 animate-verified-aura'
-                  : 'border-2 border-indigo-500/40 dark:border-indigo-500/60 bg-gradient-to-br from-indigo-50/70 via-white to-purple-50/50 dark:from-indigo-950/40 dark:via-purple-950/20 dark:to-slate-900/90 shadow-xl dark:shadow-2xl'
-              }`}
-            >
-              {/* Cool Iridescent Ambient Glow */}
-              <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-br from-cyan-500/15 via-indigo-500/20 to-purple-600/20 rounded-full blur-3xl pointer-events-none" />
-
-              {/* Offer Banner if active */}
-              {verifiedOfferEnabled && (
-                <div className="mb-4 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-black bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-white shadow-lg animate-pulse">
-                  <Flame className="w-4 h-4" />
-                  <span>VERIFIED SPECIAL OFFER!</span>
-                  {verifiedOfferMessage && (
-                    <span className="font-medium text-[11px] text-emerald-100 border-l border-emerald-300/40 pl-2">
-                      {verifiedOfferMessage}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                
-                {/* Product Info */}
-                <div className="space-y-3 max-w-xl">
-                  {/* Stock Status Badge */}
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-white/90 dark:bg-slate-950/90 border border-emerald-500/30 shadow-xs">
-                    <span className={`w-2.5 h-2.5 rounded-full ${availableStockVerified > 0 ? 'bg-cyan-400 animate-pulse' : 'bg-rose-500'}`} />
-                    <span className={availableStockVerified > 0 ? 'text-cyan-600 dark:text-cyan-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-semibold'}>
-                      {availableStockVerified > 0 ? `${availableStockVerified} Verified Accounts in Stock` : 'Currently Out of Stock'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-cyan-500 text-white flex items-center justify-center font-black text-xl shadow-lg shadow-indigo-600/40 shrink-0">
-                      <BadgeCheck className="w-7 h-7 text-white" />
-                    </div>
                     <div>
-                      <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight font-['Space_Grotesk'] flex items-center gap-2">
-                        <span>Facebook Verified Accounts</span>
-                        <span className="text-xs px-2.5 py-0.5 rounded-full bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-cyan-700 dark:text-cyan-300 font-black border border-cyan-500/40 flex items-center gap-1 shadow-xs">
-                          <Star className="w-3 h-3 text-cyan-400 fill-cyan-400" />
-                          <span>VIP Verified</span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 uppercase font-semibold block">
+                        {simpleOfferEnabled ? '⚡ Special Offer Price' : 'Simple ID Price'}
+                      </span>
+                      <div className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white font-['Space_Grotesk'] tracking-tight mt-0.5">
+                        Rs. {pricePerIdSimple} <span className="text-xs font-bold text-slate-500 dark:text-slate-400">PKR</span>
+                      </div>
+                      {simpleOfferEnabled && (
+                        <span 
+                          style={{ backgroundColor: `${simpleOfferColor}20`, borderColor: `${simpleOfferColor}50`, color: simpleOfferColor }}
+                          className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full border"
+                        >
+                          Best Value Today
                         </span>
-                      </h3>
-                      <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-0.5">
-                        High-trust, fully verified Facebook profiles with cookies & complete UID:Password login access.
-                      </p>
+                      )}
                     </div>
+
+                    <button
+                      type="button"
+                      disabled={availableStockSimple <= 0}
+                      data-disabled={availableStockSimple <= 0 ? 'true' : 'false'}
+                      onClick={() => {
+                        if (availableStockSimple <= 0 || !simpleAccountsEnabled) return;
+                        setBuyCategory('simple');
+                        setBuyQuantity(1);
+                        setShowBuyModal(true);
+                      }}
+                      style={availableStockSimple > 0 && simpleOfferEnabled ? {
+                        backgroundColor: simpleOfferColor,
+                        boxShadow: `0 8px 20px -3px ${simpleOfferColor}60`
+                      } : undefined}
+                      className={`w-full py-3.5 px-6 rounded-xl font-black text-sm shadow-lg transition flex items-center justify-center gap-2 cursor-pointer ${
+                        availableStockSimple > 0
+                          ? simpleOfferEnabled
+                            ? 'text-white hover:brightness-110 hover:scale-[1.02]'
+                            : 'bg-[#1877F2] hover:bg-blue-600 text-white shadow-blue-600/30'
+                          : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                      }`}
+                    >
+                      {simpleOfferEnabled ? <Flame className="w-4 h-4 fill-white" /> : <ShoppingBag className="w-4 h-4" />}
+                      <span>{availableStockSimple > 0 ? (simpleOfferEnabled ? 'Claim Offer & Buy' : 'Buy Simple Accounts') : 'Out of Stock'}</span>
+                    </button>
+
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {availableStockSimple > 0 ? 'Instant credential delivery' : 'Admin will restock soon'}
+                    </p>
                   </div>
 
-                  {/* Verified Specific Features List */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 text-xs text-slate-700 dark:text-slate-200">
-                    <div className="flex items-center gap-1.5 p-2 bg-white/80 dark:bg-slate-950/70 rounded-xl border border-indigo-500/30 shadow-xs">
-                      <BadgeCheck className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
-                      <span>Verified Trust Score</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 p-2 bg-white/80 dark:bg-slate-950/70 rounded-xl border border-indigo-500/30 shadow-xs">
-                      <Cookie className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      <span>Cookie & UID Included</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 p-2 bg-white/80 dark:bg-slate-950/70 rounded-xl border border-indigo-500/30 shadow-xs">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                      <span>Low Checkpoint Risk</span>
-                    </div>
-                  </div>
                 </div>
+              </div>
+            );
 
-                {/* Price & Buy Action Box */}
-                <div className="bg-white dark:bg-slate-950/90 border border-indigo-500/40 rounded-2xl p-5 sm:p-6 flex flex-col items-center justify-center text-center min-w-[240px] shrink-0 space-y-4 shadow-xl">
-                  <div>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 uppercase font-semibold block">Verified ID Price</span>
-                    <div className="text-3xl sm:text-4xl font-black bg-gradient-to-r from-indigo-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent font-['Space_Grotesk'] tracking-tight mt-0.5">
-                      Rs. {pricePerIdVerified} <span className="text-xs font-bold text-slate-500 dark:text-slate-400 font-sans">PKR</span>
+            const renderVerifiedBox = () => (
+              <div 
+                key="box-verified"
+                style={verifiedOfferEnabled ? { 
+                  borderColor: verifiedOfferColor, 
+                  boxShadow: `0 0 35px ${verifiedOfferColor}30` 
+                } : undefined}
+                className={`relative rounded-3xl p-6 sm:p-8 transition-all duration-300 overflow-hidden ${
+                  verifiedOfferEnabled
+                    ? 'border-2 bg-white dark:bg-[#0c121e] ring-4 ring-white/10'
+                    : 'border-2 border-indigo-500/30 dark:border-indigo-500/50 bg-white dark:bg-slate-900/90 shadow-md dark:shadow-2xl'
+                }`}
+              >
+                {/* Iridescent Ambient Glow */}
+                <div 
+                  className="absolute -top-24 -right-24 w-80 h-80 rounded-full blur-3xl pointer-events-none" 
+                  style={{ background: `radial-gradient(circle, ${verifiedOfferColor}35 0%, transparent 70%)` }}
+                />
+                <div 
+                  className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full blur-3xl pointer-events-none" 
+                  style={{ background: `radial-gradient(circle, ${verifiedOfferColor}25 0%, transparent 70%)` }}
+                />
+
+                {/* Offer Banner if active */}
+                {verifiedOfferEnabled && (
+                  <>
+                    {/* Top Integrated VIP Ribbon */}
+                    <div 
+                      style={{ background: `linear-gradient(135deg, ${verifiedOfferColor}, #6366f1)` }}
+                      className="relative z-10 -mx-6 -mt-6 sm:-mx-8 sm:-mt-8 mb-6 px-4 sm:px-6 py-2.5 text-white flex flex-wrap items-center justify-between gap-2 shadow-md"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0">
+                          <Crown className="w-4 h-4 text-white fill-white" />
+                        </div>
+                        <span className="font-extrabold text-xs sm:text-sm tracking-wide uppercase font-['Space_Grotesk']">
+                          Verified VIP Special Deal
+                        </span>
+                        {verifiedOfferMessage && (
+                          <span className="hidden sm:inline-block px-2.5 py-0.5 rounded-full text-xs font-bold bg-white/20 backdrop-blur-xs text-white border border-white/25">
+                            {verifiedOfferMessage}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider bg-black/25 px-2.5 py-1 rounded-full">
+                        <span className="w-2 h-2 rounded-full bg-cyan-300 animate-ping" />
+                        <span>VIP Offer Active</span>
+                      </div>
+                    </div>
+
+                    {verifiedOfferMessage && (
+                      <div 
+                        style={{ backgroundColor: `${verifiedOfferColor}18`, borderColor: `${verifiedOfferColor}40`, color: verifiedOfferColor }}
+                        className="sm:hidden mb-4 p-2.5 rounded-xl border text-xs font-bold flex items-center gap-2"
+                      >
+                        <Star className="w-3.5 h-3.5 shrink-0" style={{ color: verifiedOfferColor }} />
+                        <span>{verifiedOfferMessage}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  
+                  {/* Product Info */}
+                  <div className="space-y-3 max-w-xl">
+                    {/* Stock Status Badge */}
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 dark:bg-slate-900 border border-cyan-500/30 shadow-xs">
+                      <span className={`w-2.5 h-2.5 rounded-full ${availableStockVerified > 0 ? 'bg-cyan-400 animate-pulse' : 'bg-rose-500'}`} />
+                      <span className={availableStockVerified > 0 ? 'text-cyan-600 dark:text-cyan-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-semibold'}>
+                        {availableStockVerified > 0 ? `${availableStockVerified} Verified Accounts in Stock` : 'Currently Out of Stock'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div 
+                        style={verifiedOfferEnabled ? { 
+                          background: `linear-gradient(135deg, ${verifiedOfferColor}, #6366f1)`, 
+                          boxShadow: `0 8px 20px -4px ${verifiedOfferColor}55` 
+                        } : undefined}
+                        className={`w-12 h-12 rounded-2xl text-white flex items-center justify-center font-black text-xl shadow-lg shrink-0 ${
+                          verifiedOfferEnabled ? '' : 'bg-gradient-to-tr from-indigo-600 via-purple-600 to-cyan-500 shadow-indigo-600/40'
+                        }`}
+                      >
+                        <BadgeCheck className="w-7 h-7 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight font-['Space_Grotesk'] flex items-center gap-2">
+                          <span>Facebook Verified Accounts</span>
+                          <span 
+                            style={verifiedOfferEnabled ? {
+                              backgroundColor: `${verifiedOfferColor}20`,
+                              borderColor: `${verifiedOfferColor}50`,
+                              color: verifiedOfferColor
+                            } : undefined}
+                            className={`text-xs px-2.5 py-0.5 rounded-full font-black border flex items-center gap-1 shadow-xs ${
+                              verifiedOfferEnabled ? '' : 'bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/40'
+                            }`}
+                          >
+                            <Star className="w-3 h-3 text-cyan-400 fill-cyan-400" />
+                            <span>VIP Verified</span>
+                          </span>
+                        </h3>
+                        <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-0.5">
+                          High-trust, fully verified Facebook profiles with cookies & complete UID:Password login access.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Verified Specific Features List */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 text-xs text-slate-700 dark:text-slate-200">
+                      <div className="flex items-center gap-1.5 p-2 bg-slate-50 dark:bg-slate-950/70 rounded-xl border border-indigo-500/30 shadow-xs">
+                        <BadgeCheck className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                        <span>Verified Trust Score</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 p-2 bg-slate-50 dark:bg-slate-950/70 rounded-xl border border-indigo-500/30 shadow-xs">
+                        <Cookie className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span>Cookie & UID Included</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 p-2 bg-slate-50 dark:bg-slate-950/70 rounded-xl border border-indigo-500/30 shadow-xs">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span>Low Checkpoint Risk</span>
+                      </div>
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    disabled={availableStockVerified <= 0}
-                    onClick={() => {
-                      setBuyCategory('verified');
-                      setBuyQuantity(1);
-                      setShowBuyModal(true);
-                    }}
-                    className={`w-full py-3 px-6 rounded-xl font-bold text-sm shadow-lg transition flex items-center justify-center gap-2 cursor-pointer ${
-                      availableStockVerified > 0
-                        ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-cyan-600 hover:opacity-95 text-white shadow-indigo-600/30'
-                        : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                  {/* Price & Buy Action Box */}
+                  <div 
+                    style={verifiedOfferEnabled ? { 
+                      borderColor: `${verifiedOfferColor}60`, 
+                      boxShadow: `0 8px 25px -5px ${verifiedOfferColor}25` 
+                    } : undefined}
+                    className={`rounded-2xl p-5 sm:p-6 flex flex-col items-center justify-center text-center min-w-[240px] shrink-0 space-y-4 transition-colors ${
+                      verifiedOfferEnabled
+                        ? 'bg-slate-50/70 dark:bg-slate-950/90 border shadow-lg'
+                        : 'bg-white dark:bg-slate-950/90 border border-indigo-500/40 shadow-xl'
                     }`}
                   >
-                    <BadgeCheck className="w-4 h-4" />
-                    <span>{availableStockVerified > 0 ? 'Buy Verified Accounts' : 'Out of Stock'}</span>
-                  </button>
+                    <div>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 uppercase font-semibold block">
+                        {verifiedOfferEnabled ? '👑 VIP Discount Price' : 'Verified ID Price'}
+                      </span>
+                      <div className="text-3xl sm:text-4xl font-black bg-gradient-to-r from-indigo-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent font-['Space_Grotesk'] tracking-tight mt-0.5">
+                        Rs. {pricePerIdVerified} <span className="text-xs font-bold text-slate-500 dark:text-slate-400 font-sans">PKR</span>
+                      </div>
+                      {verifiedOfferEnabled && (
+                        <span 
+                          style={{ backgroundColor: `${verifiedOfferColor}20`, borderColor: `${verifiedOfferColor}50`, color: verifiedOfferColor }}
+                          className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full border"
+                        >
+                          Exclusive VIP Deal
+                        </span>
+                      )}
+                    </div>
 
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {availableStockVerified > 0 ? 'Instant verified credential delivery' : 'Admin will restock verified soon'}
-                  </p>
+                    <button
+                      type="button"
+                      disabled={availableStockVerified <= 0}
+                      data-disabled={availableStockVerified <= 0 ? 'true' : 'false'}
+                      onClick={() => {
+                        if (availableStockVerified <= 0 || !verifiedAccountsEnabled) return;
+                        setBuyCategory('verified');
+                        setBuyQuantity(1);
+                        setShowBuyModal(true);
+                      }}
+                      style={availableStockVerified > 0 && verifiedOfferEnabled ? {
+                        background: `linear-gradient(135deg, ${verifiedOfferColor}, #6366f1)`,
+                        boxShadow: `0 8px 20px -3px ${verifiedOfferColor}60`
+                      } : undefined}
+                      className={`w-full py-3.5 px-6 rounded-xl font-black text-sm shadow-lg transition flex items-center justify-center gap-2 cursor-pointer ${
+                        availableStockVerified > 0
+                          ? verifiedOfferEnabled
+                            ? 'text-white hover:brightness-110 hover:scale-[1.02]'
+                            : 'bg-gradient-to-r from-indigo-600 via-purple-600 to-cyan-600 hover:from-indigo-700 hover:to-cyan-700 text-white shadow-indigo-600/30 hover:scale-[1.02]'
+                          : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                      }`}
+                    >
+                      <BadgeCheck className="w-4 h-4" />
+                      <span>{availableStockVerified > 0 ? (verifiedOfferEnabled ? 'Claim VIP Offer & Buy' : 'Buy Verified Accounts') : 'Out of Stock'}</span>
+                    </button>
+
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {availableStockVerified > 0 ? 'Instant verified credential delivery' : 'Admin will restock verified soon'}
+                    </p>
+                  </div>
+
                 </div>
-
               </div>
-            </div>
-          )}
+            );
+
+            return boxesDisplayOrder === 'verified_first' ? (
+              <>
+                {verifiedAccountsEnabled && renderVerifiedBox()}
+                {simpleAccountsEnabled && renderSimpleBox()}
+              </>
+            ) : (
+              <>
+                {simpleAccountsEnabled && renderSimpleBox()}
+                {verifiedAccountsEnabled && renderVerifiedBox()}
+              </>
+            );
+          })()}
 
           {/* Customer Feedback Banner Bar */}
           <div className="p-4 bg-purple-50/70 dark:bg-purple-950/20 border border-purple-200/80 dark:border-purple-800/50 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-700 dark:text-slate-300 transition-colors">
@@ -952,7 +1275,7 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
       )}
 
       {/* POPUP 1: BUY MODAL (SUPPORTS SIMPLE OR VERIFIED CATEGORY) */}
-      {showBuyModal && (
+      {showBuyModal && ((buyCategory === 'simple' && simpleAccountsEnabled) || (buyCategory === 'verified' && verifiedAccountsEnabled)) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
           <div className="relative w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-6 space-y-5 transition-colors">
             
@@ -1196,6 +1519,7 @@ export const FBStoreDashboard: React.FC<FBStoreDashboardProps> = ({
 
       {/* Customer Feedback Modal */}
       <FeedbackModal
+        key={isFeedbackOpen ? 'feedback-open' : 'feedback-closed'}
         isOpen={isFeedbackOpen}
         onClose={() => setIsFeedbackOpen(false)}
         adminWhatsapp={whatsappNumber}

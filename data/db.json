@@ -17,7 +17,15 @@
   "settings": {
     "siteName": "FBStore",
     "pricePerId": 12,
-    "whatsappNumber": "923001234567",
+    "pricePerIdSimple": 12,
+    "pricePerIdVerified": 25,
+    "simpleAccountsEnabled": true,
+    "verifiedAccountsEnabled": true,
+    "simpleOfferEnabled": false,
+    "simpleOfferMessage": "Special Limited Discount Available!",
+    "verifiedOfferEnabled": false,
+    "verifiedOfferMessage": "Premium High-Quality Facebook Accounts!",
+    "whatsappNumber": "+92 306 4887388",
     "adminUsername": "arslan481",
     "adminPassword": "Zain786081@&#",
     "easypaisaTitle": "Muhammad Arslan",
@@ -26,7 +34,39 @@
     "jazzcashNumber": "03064887388",
     "accountTitle": "Muhammad Arslan",
     "accountNumber": "03064887388",
-    "totalBalanceAddedLifetime": 100
+    "totalBalanceAddedLifetime": 100,
+    "marqueeAnnouncement": {
+      "enabled": true,
+      "text": "🚀 Welcome to FBStore! Instant Facebook Accounts Delivery | 24/7 JazzCash & EasyPaisa Deposit | Guaranteed Fresh UIDs",
+      "speed": "normal",
+      "showBadge": true,
+      "targetType": "all"
+    },
+    "welcomeMessageConfig": {
+      "enabled": true,
+      "title": "Welcome to FBStore, {username}! 🎉",
+      "message": "Welcome {username}! Welcome to FBStore.\n\nYour account is now ready with Rs. 0 wallet balance. You can add balance via JazzCash / EasyPaisa and purchase verified Facebook accounts with instant delivery.\n\nThank you for choosing us!"
+    },
+    "tutorialVideo": {
+      "enabled": true,
+      "title": "How to Login Facebook ID with Cookie (Video Tutorial)",
+      "videoUrl": "",
+      "instructions": "1. Install \"Cookie-Editor\" extension in your Chrome, Brave or Edge browser.\n2. Open https://www.facebook.com in a new tab.\n3. Click the \"Copy Cookie\" button for your purchased account in FBStore.\n4. Click the Cookie-Editor extension icon on Facebook, click \"Import\", paste the cookie, and click Import.\n5. Refresh the Facebook page — you will be instantly logged in without needing a password!"
+    }
   },
-  "notifications": []
+  "notifications": [],
+  "announcements": [
+    {
+      "id": "ann_welcome",
+      "title": "Welcome to FBStore Official System",
+      "message": "All Facebook IDs are freshly checked with instant UID:Password delivery. For balance deposits, send JazzCash/EasyPaisa payment & submit screenshot.",
+      "type": "info",
+      "targetType": "all",
+      "showAsPopup": false,
+      "active": true,
+      "createdAt": "2026-10-10T09:27:34.494Z"
+    }
+  ],
+  "adminMessages": [],
+  "feedbacks": []
 }

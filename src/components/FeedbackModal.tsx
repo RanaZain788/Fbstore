@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   MessageSquare, 
@@ -10,7 +10,8 @@ import {
   Sparkles, 
   Bug, 
   MessageCircle,
-  ExternalLink
+  ExternalLink,
+  Plus
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../context/AuthContext';
@@ -26,7 +27,7 @@ interface FeedbackModalProps {
 export const FeedbackModal: React.FC<FeedbackModalProps> = ({ 
   isOpen, 
   onClose,
-  adminWhatsapp = '923001234567' 
+  adminWhatsapp = '+92 306 4887388' 
 }) => {
   const { user, token } = useAuth();
   const { showToast } = useNotifications();
@@ -38,6 +39,40 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Reset the entire feedback form
+  const resetForm = () => {
+    setIsSuccess(false);
+    setErrorMsg('');
+    setSubject('');
+    setMessage('');
+    setContactInfo('');
+    setType('feature_request');
+    setIsSubmitting(false);
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
+  // Automatically reset the feedback form whenever modal is opened or reopened
+  useEffect(() => {
+    if (isOpen) {
+      resetForm();
+    }
+  }, [isOpen]);
+
+  // Handle ESC key to close and reset
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -93,7 +128,12 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
+    <div 
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in"
+    >
       <div className="relative max-w-lg w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-5 shadow-2xl animate-slide-up">
         
         {/* Header */}
@@ -112,7 +152,8 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
             </div>
           </div>
           <button
-            onClick={onClose}
+            type="button"
+            onClick={handleClose}
             className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -132,11 +173,19 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
                 Your message has been sent directly to the Admin Portal. We review all customer feedback carefully to improve FBStore!
               </p>
             </div>
-            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2.5">
+              <button
+                type="button"
+                onClick={resetForm}
+                className="w-full sm:w-auto px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Submit Another Feedback</span>
+              </button>
               <button
                 type="button"
                 onClick={handleOpenWhatsApp}
-                className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md"
+                className="w-full sm:w-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md"
               >
                 <MessageCircle className="w-4 h-4" />
                 <span>Chat Admin on WhatsApp</span>
@@ -144,8 +193,8 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
               </button>
               <button
                 type="button"
-                onClick={onClose}
-                className="w-full sm:w-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl transition cursor-pointer"
+                onClick={handleClose}
+                className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl transition cursor-pointer"
               >
                 Close
               </button>

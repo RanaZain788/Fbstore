@@ -1,0 +1,110 @@
+{
+  "users": [
+    {
+      "id": "usr_admin",
+      "username": "arslan481",
+      "email": "hasnainhmad081@gmail.com",
+      "passwordHash": "75c7a05fad97d676c1f201e715d28d9b5db29641e3336d0422592d6abaa262b4",
+      "role": "admin",
+      "walletBalance": 0,
+      "createdAt": "2026-10-05T17:58:55.839Z",
+      "plainPassword": "Zain786081@&#"
+    },
+    {
+      "id": "usr_1791731894604_u9eq",
+      "username": "brandnewuser999",
+      "email": "admin@fbstore.com",
+      "passwordHash": "46c769cd4f40acfdf80ca03cbc7aa294c21e3f14927c95159a41d6a750dc3e0b",
+      "plainPassword": "testpassword123",
+      "role": "user",
+      "walletBalance": 0,
+      "createdAt": "2026-10-11T15:18:14.604Z"
+    }
+  ],
+  "idsStock": [],
+  "purchases": [],
+  "deposits": [],
+  "settings": {
+    "siteName": "FBStore",
+    "pricePerId": 12,
+    "pricePerIdSimple": 12,
+    "pricePerIdVerified": 25,
+    "simpleAccountsEnabled": true,
+    "verifiedAccountsEnabled": true,
+    "simpleOfferEnabled": false,
+    "simpleOfferMessage": "Special Limited Discount Available!",
+    "simpleOfferColor": "#f59e0b",
+    "verifiedOfferEnabled": false,
+    "verifiedOfferMessage": "Premium High-Quality Facebook Accounts!",
+    "verifiedOfferColor": "#06b6d4",
+    "boxesDisplayOrder": "simple_first",
+    "whatsappNumber": "+92 306 4887388",
+    "adminUsername": "arslan481",
+    "adminPassword": "Zain786081@&#",
+    "easypaisaTitle": "Muhammad Arslan",
+    "easypaisaNumber": "03064887388",
+    "jazzcashTitle": "Muhammad Arslan",
+    "jazzcashNumber": "03064887388",
+    "accountTitle": "Muhammad Arslan",
+    "accountNumber": "03064887388",
+    "totalBalanceAddedLifetime": 100,
+    "marqueeAnnouncement": {
+      "enabled": true,
+      "text": "🚀 Welcome to FBStore! Instant Facebook Accounts Delivery | 24/7 JazzCash & EasyPaisa Deposit | Guaranteed Fresh UIDs",
+      "speed": "normal",
+      "showBadge": true,
+      "targetType": "all"
+    },
+    "welcomeMessageConfig": {
+      "enabled": true,
+      "title": "Welcome to FBStore, {username}! 🎉",
+      "message": "Welcome {username}! Welcome to FBStore.\n\nYour account is now ready with Rs. 0 wallet balance. You can add balance via JazzCash / EasyPaisa and purchase verified Facebook accounts with instant delivery.\n\nThank you for choosing us!"
+    },
+    "tutorialVideo": {
+      "enabled": true,
+      "title": "How to Login Facebook ID with Cookie (Video Tutorial)",
+      "videoUrl": "",
+      "instructions": "1. Install \"Cookie-Editor\" extension in your Chrome, Brave or Edge browser.\n2. Open https://www.facebook.com in a new tab.\n3. Click the \"Copy Cookie\" button for your purchased account in FBStore.\n4. Click the Cookie-Editor extension icon on Facebook, click \"Import\", paste the cookie, and click Import.\n5. Refresh the Facebook page — you will be instantly logged in without needing a password!"
+    }
+  },
+  "notifications": [],
+  "announcements": [
+    {
+      "title": "Welcome to FBStore, brandnewuser999! 🎉",
+      "message": "Welcome brandnewuser999! Welcome to FBStore.\n\nYour account is now ready with Rs. 0 wallet balance. You can add balance via JazzCash / EasyPaisa and purchase verified Facebook accounts with instant delivery.\n\nThank you for choosing us!",
+      "type": "success",
+      "targetType": "user",
+      "targetUserId": "usr_1791731894604_u9eq",
+      "targetUsername": "brandnewuser999",
+      "showAsPopup": true,
+      "frequency": "once_only",
+      "active": true,
+      "id": "ann_1791731894605_65la",
+      "createdAt": "2026-10-11T15:18:14.605Z"
+    },
+    {
+      "id": "ann_welcome",
+      "title": "Welcome to FBStore Official System",
+      "message": "All Facebook IDs are freshly checked with instant UID:Password delivery. For balance deposits, send JazzCash/EasyPaisa payment & submit screenshot.",
+      "type": "info",
+      "targetType": "all",
+      "showAsPopup": false,
+      "active": true,
+      "createdAt": "2026-10-10T09:27:34.494Z"
+    }
+  ],
+  "adminMessages": [
+    {
+      "userId": "usr_1791731894604_u9eq",
+      "targetUsername": "brandnewuser999",
+      "sender": "FBStore System",
+      "title": "Welcome to FBStore, brandnewuser999! 🎉",
+      "message": "Welcome brandnewuser999! Welcome to FBStore.\n\nYour account is now ready with Rs. 0 wallet balance. You can add balance via JazzCash / EasyPaisa and purchase verified Facebook accounts with instant delivery.\n\nThank you for choosing us!",
+      "priority": "high",
+      "id": "msg_1791731894606_m6m8",
+      "read": false,
+      "createdAt": "2026-10-11T15:18:14.606Z"
+    }
+  ],
+  "feedbacks": []
+}

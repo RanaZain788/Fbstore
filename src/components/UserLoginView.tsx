@@ -42,7 +42,7 @@ export const UserLoginView: React.FC = () => {
   // Forgot Password via WhatsApp Modal State
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotUsernameInput, setForgotUsernameInput] = useState('');
-  const [adminWhatsapp, setAdminWhatsapp] = useState('923001234567');
+  const [adminWhatsapp, setAdminWhatsapp] = useState('+92 306 4887388');
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -419,6 +419,23 @@ export const UserLoginView: React.FC = () => {
               </button>
             </form>
           )}
+
+          {/* WhatsApp Direct Chat with Admin Button */}
+          <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800/80">
+            <a
+              href={`https://wa.me/${(adminWhatsapp || '923064887388').replace(/\D/g, '')}?text=${encodeURIComponent('Hello Admin, I am on FBStore and need help with my account/login.')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
+            >
+              <MessageCircle className="w-4 h-4 fill-white/20" />
+              <span>Chat with Admin on WhatsApp ({adminWhatsapp || '+92 306 4887388'})</span>
+              <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+            </a>
+            <p className="text-[11px] text-center text-slate-500 dark:text-slate-400 mt-2">
+              Instant 24/7 Support for Account Help, Password Reset & Deposit Verification
+            </p>
+          </div>
 
         </div>
 

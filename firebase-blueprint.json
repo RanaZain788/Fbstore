@@ -1,0 +1,150 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with balance and metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "walletBalance": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "username", "email", "role"]
+    },
+    "StockItem": {
+      "title": "StockItem",
+      "description": "Facebook accounts stock item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "password": { "type": "string" },
+        "cookie": { "type": "string" },
+        "category": { "type": "string", "enum": ["simple", "verified"] },
+        "status": { "type": "string", "enum": ["available", "sold"] },
+        "soldTo": { "type": "string" },
+        "soldAt": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "uid", "password", "status"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer purchase order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "category": { "type": "string", "enum": ["simple", "verified"] },
+        "quantity": { "type": "number" },
+        "pricePerId": { "type": "number" },
+        "totalPrice": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "username", "quantity", "totalPrice"]
+    },
+    "Deposit": {
+      "title": "Deposit",
+      "description": "Deposit funds request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "amount": { "type": "number" },
+        "gateway": { "type": "string" },
+        "transactionId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "amount", "transactionId", "status"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Store site announcement",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "type": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "content"]
+    },
+    "Setting": {
+      "title": "Setting",
+      "description": "Global store settings and marquee configurations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "AdminMessage": {
+      "title": "AdminMessage",
+      "description": "Notification or message sent from admin to customer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "message"]
+    },
+    "CustomerFeedback": {
+      "title": "CustomerFeedback",
+      "description": "Feedback or report submitted by customer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "subject": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "subject", "description"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Customer and admin profile records"
+    },
+    "/stock/{stockId}": {
+      "schema": "StockItem",
+      "description": "Facebook accounts stock inventory"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Purchase transaction records"
+    },
+    "/deposits/{depositId}": {
+      "schema": "Deposit",
+      "description": "Manual payment verification requests"
+    },
+    "/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "Store announcements and banners"
+    },
+    "/settings/{settingId}": {
+      "schema": "Setting",
+      "description": "Store configuration and marquee"
+    },
+    "/adminMessages/{messageId}": {
+      "schema": "AdminMessage",
+      "description": "Admin direct notices to users"
+    },
+    "/feedbacks/{feedbackId}": {
+      "schema": "CustomerFeedback",
+      "description": "Customer feedback and suggestion records"
+    }
+  }
+}

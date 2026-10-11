@@ -8,19 +8,10 @@ import {
   serverTimestamp 
 } from 'firebase/firestore';
 import { DatabaseSchema } from './db';
-
-const firebaseConfig = {
-  apiKey: "AIzaSyB2hlLW9ieElLtbyksy52Nlw2ook1Heeno",
-  authDomain: "fbstore-bf1e3.firebaseapp.com",
-  projectId: "fbstore-bf1e3",
-  storageBucket: "fbstore-bf1e3.firebasestorage.app",
-  messagingSenderId: "994980888815",
-  appId: "1:994980888815:web:e416f85886797a73a9db1a",
-  measurementId: "G-1WX19HMLDX"
-};
+import firebaseConfig from '../firebase-applet-config.json';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const firestoreDb = getFirestore(app);
+export const firestoreDb = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
 
 export interface FirebaseSyncStatus {
   lastSyncTime: string | null;
@@ -45,6 +36,11 @@ export function getFirebaseSyncStatus(): FirebaseSyncStatus {
   return syncStatus;
 }
 
+function stripUndefined(obj: any): any {
+  if (!obj) return obj;
+  return JSON.parse(JSON.stringify(obj));
+}
+
 /**
  * Sync entire local data snapshot to Firestore
  */
@@ -59,8 +55,9 @@ export async function syncAllToFirestore(data: DatabaseSchema): Promise<{ succes
 
     // 1. Sync Settings
     try {
+      const cleanSettings = stripUndefined(data.settings || {});
       await setDoc(doc(firestoreDb, 'settings', 'site'), {
-        ...data.settings,
+        ...cleanSettings,
         updatedAt: serverTimestamp()
       }, { merge: true });
     } catch (e: any) {
@@ -74,16 +71,18 @@ export async function syncAllToFirestore(data: DatabaseSchema): Promise<{ succes
 
     // 2. Sync Marquee
     if (data.settings?.marqueeAnnouncement) {
+      const cleanMarquee = stripUndefined(data.settings.marqueeAnnouncement);
       await setDoc(doc(firestoreDb, 'settings', 'marquee'), {
-        ...data.settings.marqueeAnnouncement,
+        ...cleanMarquee,
         updatedAt: serverTimestamp()
       }, { merge: true });
     }
 
     // 2b. Sync Tutorial Video
     if (data.settings?.tutorialVideo) {
+      const cleanTutorial = stripUndefined(data.settings.tutorialVideo);
       await setDoc(doc(firestoreDb, 'settings', 'tutorial'), {
-        ...data.settings.tutorialVideo,
+        ...cleanTutorial,
         updatedAt: serverTimestamp()
       }, { merge: true });
     }
@@ -141,7 +140,7 @@ export async function syncAllToFirestore(data: DatabaseSchema): Promise<{ succes
     // 6. Sync Deposits
     for (const dep of data.deposits) {
       await setDoc(doc(firestoreDb, 'deposits', dep.id), {
-        ...dep,
+        ...stripUndefined(dep),
         updatedAt: serverTimestamp()
       }, { merge: true });
       syncedDeposits++;
@@ -150,10 +149,20 @@ export async function syncAllToFirestore(data: DatabaseSchema): Promise<{ succes
     // 7. Sync Announcements
     for (const ann of data.announcements) {
       await setDoc(doc(firestoreDb, 'announcements', ann.id), {
-        ...ann,
+        ...stripUndefined(ann),
         updatedAt: serverTimestamp()
       }, { merge: true });
       syncedAnnouncements++;
+    }
+
+    // 8. Sync Direct Admin Messages
+    if (Array.isArray(data.adminMessages)) {
+      for (const msg of data.adminMessages) {
+        await setDoc(doc(firestoreDb, 'adminMessages', msg.id), {
+          ...stripUndefined(msg),
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
     }
 
     syncStatus = {

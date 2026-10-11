@@ -138,7 +138,8 @@ export const MarqueeBanner: React.FC = () => {
         ? 'animate-marquee-fast' 
         : 'animate-marquee-normal';
 
-  const shouldShowBadge = marquee.showBadge !== false;
+  const shouldShowBadge = marquee.showBadge !== false && (marquee.badgeText === undefined || marquee.badgeText.trim().length > 0);
+  const badgeLabel = (marquee.badgeText && marquee.badgeText.trim()) ? marquee.badgeText.trim() : 'Stock Update';
 
   return (
     <div className="relative z-40 w-full bg-amber-500/[0.08] dark:bg-[#080c14] border-b border-amber-300/70 dark:border-amber-500/25 text-slate-900 dark:text-slate-100 shadow-xs dark:shadow-md marquee-container overflow-hidden select-none transition-colors duration-200">
@@ -148,7 +149,7 @@ export const MarqueeBanner: React.FC = () => {
           <div className="flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-400 dark:border-amber-500/40 rounded-lg text-amber-900 dark:text-amber-300 text-[11px] sm:text-xs font-bold mr-3 shadow-xs z-10">
             <Megaphone className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse" />
             <span className="tracking-wide uppercase text-[10px] sm:text-[11px]">
-              {marquee.badgeText || 'Announcement'}
+              {badgeLabel}
             </span>
           </div>
         )}

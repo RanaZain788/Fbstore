@@ -26,7 +26,7 @@ interface UserProfileModalProps {
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({ 
   isOpen, 
   onClose,
-  whatsappNumber = '923001234567' 
+  whatsappNumber = '+92 306 4887388' 
 }) => {
   const { user, token } = useAuth();
   const { showToast } = useNotifications();

@@ -86,8 +86,11 @@ export interface StoreSettings {
   verifiedAccountsEnabled: boolean; // Toggle Verified accounts box in store
   simpleOfferEnabled: boolean; // Toggle Offer effect on Simple accounts box
   simpleOfferMessage?: string; // Optional offer text e.g. "Weekend Special - 20% OFF"
+  simpleOfferColor?: string; // Custom theme color for simple accounts offer e.g. "#f59e0b"
   verifiedOfferEnabled: boolean; // Toggle Offer effect on Verified accounts box
   verifiedOfferMessage?: string; // Optional offer text e.g. "High Quality Blue Badge IDs on Sale"
+  verifiedOfferColor?: string; // Custom theme color for verified accounts offer e.g. "#06b6d4"
+  boxesDisplayOrder?: 'simple_first' | 'verified_first'; // Ordering of boxes in store (which shows on top)
   whatsappNumber: string;
   adminUsername: string; // Default: arslan481
   adminPassword: string; // Default: Zain786081@&#

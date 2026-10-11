@@ -53,7 +53,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
       const cached = localStorage.getItem('fbstore_cached_whatsapp');
       if (cached) return cached;
     }
-    return '923001234567';
+    return '+92 306 4887388';
   });
 
   // =====================================================

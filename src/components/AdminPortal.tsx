@@ -48,7 +48,13 @@ import {
   MessageSquarePlus,
   HelpCircle,
   Filter,
-  Star
+  Star,
+  ArrowUpDown,
+  Palette,
+  ArrowUp,
+  ArrowDown,
+  Crown,
+  Tag
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../context/AuthContext';
@@ -150,6 +156,7 @@ export const AdminPortal: React.FC = () => {
     text: '🚀 Welcome to FBStore! Instant Facebook Accounts Delivery | 24/7 JazzCash & EasyPaisa Deposit | Guaranteed Fresh UIDs',
     speed: 'normal',
     showBadge: true,
+    badgeText: 'Stock Update',
     targetType: 'all',
   });
   const [isSavingMarquee, setIsSavingMarquee] = useState(false);
@@ -159,6 +166,7 @@ export const AdminPortal: React.FC = () => {
   const [messageTargetUser, setMessageTargetUser] = useState<UserStatsItem | null>(null);
   const [msgTargetType, setMsgTargetType] = useState<'all' | 'user'>('user');
   const [msgSelectedUserId, setMsgSelectedUserId] = useState<string>('');
+  const [manualRecipientInput, setManualRecipientInput] = useState<string>('');
   const [msgTitle, setMsgTitle] = useState('');
   const [msgBody, setMsgBody] = useState('');
   const [msgPriority, setMsgPriority] = useState<'normal' | 'high' | 'urgent'>('normal');
@@ -168,6 +176,7 @@ export const AdminPortal: React.FC = () => {
 
   // Search User
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [activeUserMenuId, setActiveUserMenuId] = useState<string | null>(null);
 
   // Balance Adjustment Modal
   const [balanceModalUser, setBalanceModalUser] = useState<UserStatsItem | null>(null);
@@ -178,7 +187,7 @@ export const AdminPortal: React.FC = () => {
 
   // Total Lifetime Balance Adjustment Modal
   const [totalBalanceModalOpen, setTotalBalanceModalOpen] = useState(false);
-  const [totalBalanceMode, setTotalBalanceMode] = useState<'deduct' | 'reset' | 'set'>('deduct');
+  const [totalBalanceMode, setTotalBalanceMode] = useState<'add' | 'deduct' | 'reset' | 'set'>('add');
   const [totalBalanceInput, setTotalBalanceInput] = useState<number>(100);
   const [isAdjustingTotal, setIsAdjustingTotal] = useState(false);
 
@@ -193,6 +202,7 @@ export const AdminPortal: React.FC = () => {
   const [adminNewPasswordInput, setAdminNewPasswordInput] = useState('');
   const [isUpdatingUserPassword, setIsUpdatingUserPassword] = useState(false);
   const [showModalPassword, setShowModalPassword] = useState(false);
+  const [showAllPasswords, setShowAllPasswords] = useState(false);
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
 
   const [deleteUserModal, setDeleteUserModal] = useState<UserStatsItem | null>(null);
@@ -204,7 +214,7 @@ export const AdminPortal: React.FC = () => {
   const [settingsForm, setSettingsForm] = useState({
     adminUsername: 'arslan481',
     adminPassword: 'Zain786081@&#',
-    whatsappNumber: '923001234567',
+    whatsappNumber: '+92 306 4887388',
     accountTitle: 'Muhammad Arslan',
     accountNumber: '03064887388',
     easypaisaTitle: 'Muhammad Arslan',
@@ -217,8 +227,11 @@ export const AdminPortal: React.FC = () => {
     verifiedAccountsEnabled: true,
     simpleOfferEnabled: false,
     simpleOfferMessage: 'Special Limited Discount Available!',
+    simpleOfferColor: '#f59e0b',
     verifiedOfferEnabled: false,
     verifiedOfferMessage: 'Premium VIP Verified Accounts Sale!',
+    verifiedOfferColor: '#06b6d4',
+    boxesDisplayOrder: 'simple_first' as 'simple_first' | 'verified_first',
     smtpHost: 'smtp.gmail.com',
     smtpPort: 587,
     smtpUser: '',
@@ -530,7 +543,18 @@ export const AdminPortal: React.FC = () => {
       }
       if (resMarq.ok) {
         const d = await resMarq.json();
-        if (d.marquee) setMarqueeSettings(d.marquee);
+        if (d.marquee) {
+          setMarqueeSettings({
+            enabled: d.marquee.enabled !== false,
+            text: d.marquee.text || '',
+            speed: d.marquee.speed || 'normal',
+            showBadge: d.marquee.showBadge !== false,
+            badgeText: d.marquee.badgeText || 'Stock Update',
+            targetType: d.marquee.targetType || 'all',
+            targetUserId: d.marquee.targetUserId,
+            targetUsername: d.marquee.targetUsername,
+          });
+        }
       }
       if (resMsg.ok) {
         const d = await resMsg.json();
@@ -557,7 +581,7 @@ export const AdminPortal: React.FC = () => {
           setSettingsForm({
             adminUsername: d.settings.adminUsername || 'arslan481',
             adminPassword: d.settings.adminPassword || 'Zain786081@&#',
-            whatsappNumber: d.settings.whatsappNumber || '923001234567',
+            whatsappNumber: d.settings.whatsappNumber || '+92 306 4887388',
             accountTitle: pTitle,
             accountNumber: pNumber,
             easypaisaTitle: pTitle,
@@ -570,8 +594,11 @@ export const AdminPortal: React.FC = () => {
             verifiedAccountsEnabled: d.settings.verifiedAccountsEnabled !== false,
             simpleOfferEnabled: Boolean(d.settings.simpleOfferEnabled),
             simpleOfferMessage: d.settings.simpleOfferMessage || 'Special Limited Discount Available!',
+            simpleOfferColor: d.settings.simpleOfferColor || '#f59e0b',
             verifiedOfferEnabled: Boolean(d.settings.verifiedOfferEnabled),
             verifiedOfferMessage: d.settings.verifiedOfferMessage || 'Premium VIP Verified Accounts Sale!',
+            verifiedOfferColor: d.settings.verifiedOfferColor || '#06b6d4',
+            boxesDisplayOrder: (d.settings.boxesDisplayOrder === 'verified_first' ? 'verified_first' : 'simple_first') as 'simple_first' | 'verified_first',
             smtpHost: d.settings.smtp?.host || 'smtp.gmail.com',
             smtpPort: d.settings.smtp?.port || 587,
             smtpUser: d.settings.smtp?.user || '',
@@ -621,6 +648,16 @@ export const AdminPortal: React.FC = () => {
       eventSource?.close();
     };
   }, [isLoggedInAsAdmin]);
+
+  // Close user dropdown menu when clicking anywhere outside
+  useEffect(() => {
+    if (!activeUserMenuId) return;
+    const handleOutsideClick = () => {
+      setActiveUserMenuId(null);
+    };
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, [activeUserMenuId]);
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1007,8 +1044,11 @@ export const AdminPortal: React.FC = () => {
         verifiedAccountsEnabled: Boolean(settingsForm.verifiedAccountsEnabled),
         simpleOfferEnabled: Boolean(settingsForm.simpleOfferEnabled),
         simpleOfferMessage: String(settingsForm.simpleOfferMessage || '').trim(),
+        simpleOfferColor: String(settingsForm.simpleOfferColor || '#f59e0b').trim(),
         verifiedOfferEnabled: Boolean(settingsForm.verifiedOfferEnabled),
         verifiedOfferMessage: String(settingsForm.verifiedOfferMessage || '').trim(),
+        verifiedOfferColor: String(settingsForm.verifiedOfferColor || '#06b6d4').trim(),
+        boxesDisplayOrder: settingsForm.boxesDisplayOrder || 'simple_first',
         whatsappNumber: (settingsForm.whatsappNumber || '').trim(),
       };
 
@@ -1337,18 +1377,20 @@ export const AdminPortal: React.FC = () => {
   };
 
   // 12. Direct Admin Messaging Handlers
-  const handleOpenMessageModal = (targetUser?: UserStatsItem) => {
+  const handleOpenMessageModal = (targetUser?: UserStatsItem | null, initialTitle?: string, initialBody?: string) => {
     if (targetUser) {
       setMessageTargetUser(targetUser);
       setMsgTargetType('user');
       setMsgSelectedUserId(targetUser.id);
+      setManualRecipientInput(targetUser.username || targetUser.email || targetUser.id);
     } else {
       setMessageTargetUser(null);
       setMsgTargetType('all');
       setMsgSelectedUserId(usersList[0]?.id || '');
+      setManualRecipientInput('');
     }
-    setMsgTitle('');
-    setMsgBody('');
+    setMsgTitle(initialTitle || '');
+    setMsgBody(initialBody || '');
     setMsgPriority('normal');
     setMessageModalOpen(true);
   };
@@ -1364,14 +1406,27 @@ export const AdminPortal: React.FC = () => {
     }
 
     const isBroadcast = msgTargetType === 'all';
-    const targetUserId = isBroadcast ? 'all' : (msgSelectedUserId || messageTargetUser?.id);
-    if (!targetUserId) {
-      showToast('Missing Recipient', 'Please select a recipient user.', 'error');
-      return;
-    }
+    let targetUserId = 'all';
+    let targetUsername = 'All Registered Users';
 
-    const targetUserObj = usersList.find(u => u.id === targetUserId);
-    const targetUsername = isBroadcast ? 'All Registered Users' : (targetUserObj?.username || messageTargetUser?.username || 'Customer');
+    if (!isBroadcast) {
+      targetUserId = (manualRecipientInput.trim() || msgSelectedUserId || messageTargetUser?.id || '').trim();
+      if (!targetUserId) {
+        showToast('Missing Recipient', 'Please select or type a recipient username, email, or user ID.', 'error');
+        return;
+      }
+      const matched = usersList.find(u => 
+        u.id.toLowerCase() === targetUserId.toLowerCase() || 
+        u.username.toLowerCase() === targetUserId.toLowerCase() || 
+        u.email.toLowerCase() === targetUserId.toLowerCase()
+      );
+      if (matched) {
+        targetUserId = matched.id;
+        targetUsername = matched.username;
+      } else {
+        targetUsername = messageTargetUser?.username || manualRecipientInput.trim();
+      }
+    }
 
     setIsSendingMessage(true);
     try {
@@ -1401,6 +1456,7 @@ export const AdminPortal: React.FC = () => {
         setMessageModalOpen(false);
         setMsgTitle('');
         setMsgBody('');
+        setManualRecipientInput('');
       } else {
         showToast('Error', data.error || 'Failed to send direct message.', 'error');
       }
@@ -1518,13 +1574,23 @@ export const AdminPortal: React.FC = () => {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${currentToken}`
           },
-          body: JSON.stringify({ mode: totalBalanceMode, amount: totalBalanceInput })
+          body: JSON.stringify({ 
+            mode: totalBalanceMode, 
+            amount: Number(totalBalanceInput),
+            addAmount: totalBalanceMode === 'add' ? Number(totalBalanceInput) : undefined,
+            deductAmount: totalBalanceMode === 'deduct' ? Number(totalBalanceInput) : undefined,
+            newAmount: totalBalanceMode === 'set' ? Number(totalBalanceInput) : undefined
+          })
         });
         const d = await res.json();
         if (res.ok) {
-          setTotalLifetimeBalanceAdded(d.totalBalanceAddedLifetime ?? totalBalanceInput);
-          showToast('Updated', `Total balance stat adjusted to Rs. ${(d.totalBalanceAddedLifetime ?? totalBalanceInput).toLocaleString()} PKR.`, 'success');
+          const newVal = d.totalBalanceAddedLifetime ?? totalBalanceInput;
+          setTotalLifetimeBalanceAdded(newVal);
+          showToast('Updated', `Total balance stat adjusted to Rs. ${newVal.toLocaleString()} PKR.`, 'success');
           setTotalBalanceModalOpen(false);
+          fetchAdminData();
+        } else {
+          showToast('Failed', d.error || 'Could not update total balance stat.', 'error');
         }
       }
     } catch (err: any) {
@@ -1994,6 +2060,27 @@ export const AdminPortal: React.FC = () => {
                                 <span>Mark Rejected</span>
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveMenuDepositId(null);
+                                const matched = usersList.find(u => u.id === dep.userId || u.username === dep.username || u.email === dep.userEmail);
+                                handleOpenMessageModal(matched || {
+                                  id: dep.userId,
+                                  username: dep.username,
+                                  email: dep.userEmail,
+                                  walletBalance: 0,
+                                  createdAt: dep.createdAt,
+                                  ordersCount: 0,
+                                  totalAccountsBought: 0,
+                                  totalSpent: 0
+                                }, 'Regarding Your Deposit Request', `Hello @${dep.username}, regarding your recent deposit of Rs. ${dep.amount} (TID: ${dep.transactionId}): `);
+                              }}
+                              className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-blue-400 hover:bg-blue-500/10 rounded-lg transition text-left cursor-pointer"
+                            >
+                              <Mail className="w-3.5 h-3.5" />
+                              <span>Message @{dep.username}</span>
+                            </button>
                           </div>
                         )}
                       </div>
@@ -2544,6 +2631,29 @@ export const AdminPortal: React.FC = () => {
 
                       {/* Status Buttons */}
                       <div className="flex items-center gap-2 shrink-0">
+                        {(fb.username || fb.email || fb.userId) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const matched = usersList.find(u => u.id === fb.userId || u.username === fb.username || u.email === fb.email);
+                              handleOpenMessageModal(matched || {
+                                id: fb.userId || fb.username || 'customer',
+                                username: fb.username || 'Customer',
+                                email: fb.email || '',
+                                walletBalance: 0,
+                                createdAt: fb.createdAt,
+                                ordersCount: 0,
+                                totalAccountsBought: 0,
+                                totalSpent: 0
+                              }, `Response: ${fb.subject}`, `Hello @${fb.username || 'Customer'},\n\nThank you for your feedback regarding "${fb.subject}". `);
+                            }}
+                            className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+                            title="Send direct response message to this customer"
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>Reply</span>
+                          </button>
+                        )}
                         {fb.status !== 'resolved' && (
                           <button
                             type="button"
@@ -2603,8 +2713,24 @@ export const AdminPortal: React.FC = () => {
                     <tr>
                       <th className="p-3.5">Customer</th>
                       <th className="p-3.5">Email</th>
+                      <th className="p-3.5">
+                        <div className="flex items-center gap-1.5">
+                          <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Password</span>
+                          <button
+                            type="button"
+                            onClick={() => setShowAllPasswords(prev => !prev)}
+                            className="ml-1.5 px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                            title={showAllPasswords ? 'Hide all user passwords' : 'Show all user passwords'}
+                          >
+                            {showAllPasswords ? <EyeOff className="w-3 h-3 text-amber-400" /> : <Eye className="w-3 h-3 text-slate-400" />}
+                            <span>{showAllPasswords ? 'Hide All' : 'Show All'}</span>
+                          </button>
+                        </div>
+                      </th>
                       <th className="p-3.5">Wallet Balance</th>
-                      <th className="p-3.5">Purchases</th>
+                      <th className="p-3.5">IDs Bought / Purchases</th>
+                      <th className="p-3.5">Created Date & Time</th>
                       <th className="p-3.5 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -2616,46 +2742,34 @@ export const AdminPortal: React.FC = () => {
                         <td className="p-3.5 font-bold text-white">@{u.username}</td>
                         <td className="p-3.5 text-slate-400">{u.email}</td>
                         <td className="p-3.5">
-                          <span className="font-mono font-bold text-emerald-400 text-sm">
-                            Rs. {u.walletBalance.toLocaleString()} PKR
-                          </span>
-                        </td>
-                        <td className="p-3.5 text-slate-400">{u.ordersCount || 0} orders</td>
-                        <td className="p-3.5 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setBalanceModalUser(u);
-                                setAdjustMode('add');
-                                setAdjustAmount(120);
-                                setAdjustReason('WhatsApp payment verified');
-                              }}
-                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition cursor-pointer"
-                            >
-                              + Add
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setBalanceModalUser(u);
-                                setAdjustMode('deduct');
-                                setAdjustAmount(24);
-                                setAdjustReason('Admin balance deduction');
-                              }}
-                              className="px-2.5 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded-lg text-xs font-bold transition cursor-pointer"
-                            >
-                              Deduct
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenMessageModal(u)}
-                              className="px-2.5 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                              title={`Send Direct Message to @${u.username}`}
-                            >
-                              <Mail className="w-3.5 h-3.5" />
-                              <span>Message</span>
-                            </button>
+                          {u.plainPassword ? (
+                            <div className="inline-flex items-center gap-1.5 bg-slate-950/90 px-2.5 py-1 rounded-xl border border-slate-800 font-mono text-xs">
+                              <span className="text-amber-300 font-medium select-all">
+                                {showAllPasswords || revealedPasswords[u.id] ? u.plainPassword : '••••••••'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setRevealedPasswords(prev => ({ ...prev, [u.id]: !prev[u.id] }))}
+                                className="text-slate-400 hover:text-white p-0.5 transition cursor-pointer"
+                                title={showAllPasswords || revealedPasswords[u.id] ? 'Hide' : 'Reveal'}
+                              >
+                                {showAllPasswords || revealedPasswords[u.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (u.plainPassword) {
+                                    navigator.clipboard.writeText(u.plainPassword);
+                                    showToast('Copied', `Password for @${u.username} copied!`, 'success');
+                                  }
+                                }}
+                                className="text-slate-400 hover:text-white p-0.5 transition cursor-pointer"
+                                title="Copy password"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
                             <button
                               type="button"
                               onClick={() => {
@@ -2663,20 +2777,131 @@ export const AdminPortal: React.FC = () => {
                                 setAdminNewPasswordInput('');
                                 setShowModalPassword(false);
                               }}
-                              className="px-2.5 py-1.5 bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                              title={`Change Password for @${u.username}`}
+                              className="text-[11px] text-amber-400 hover:text-amber-300 underline font-medium cursor-pointer"
+                              title="Set password for this user"
                             >
-                              <KeyRound className="w-3.5 h-3.5" />
-                              <span>Password</span>
+                              Set Password
                             </button>
+                          )}
+                        </td>
+                        <td className="p-3.5">
+                          <span className="font-mono font-bold text-emerald-400 text-sm">
+                            Rs. {u.walletBalance.toLocaleString()} PKR
+                          </span>
+                        </td>
+                        <td className="p-3.5">
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                {u.totalAccountsBought || 0} IDs Bought
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-400">
+                              {u.ordersCount || 0} orders • Rs. {(u.totalSpent || 0).toLocaleString()} PKR
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-3.5">
+                          <div className="flex flex-col text-[11px] font-mono">
+                            <span className="text-slate-200 font-semibold flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-emerald-400" />
+                              {u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A'}
+                            </span>
+                            <span className="text-slate-400 text-[10px] pl-4">
+                              {u.createdAt ? new Date(u.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-3.5 text-right relative">
+                          <div className="inline-block text-left relative">
                             <button
                               type="button"
-                              onClick={() => setDeleteUserModal(u)}
-                              className="p-1.5 bg-rose-600/10 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/20 rounded-lg transition cursor-pointer"
-                              title={`Delete Account @${u.username}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveUserMenuId(activeUserMenuId === u.id ? null : u.id);
+                              }}
+                              className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer border border-slate-700/60"
+                              title="User actions menu"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <MoreVertical className="w-4 h-4" />
                             </button>
+
+                            {activeUserMenuId === u.id && (
+                              <div 
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute right-0 mt-1 w-48 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl z-30 p-1.5 space-y-1 animate-fade-in text-left"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveUserMenuId(null);
+                                    setBalanceModalUser(u);
+                                    setAdjustMode('add');
+                                    setAdjustAmount(120);
+                                    setAdjustReason('WhatsApp payment verified');
+                                  }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition text-left cursor-pointer"
+                                >
+                                  <Plus className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>+ Add Balance</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveUserMenuId(null);
+                                    setBalanceModalUser(u);
+                                    setAdjustMode('deduct');
+                                    setAdjustAmount(24);
+                                    setAdjustReason('Admin balance deduction');
+                                  }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-lg transition text-left cursor-pointer"
+                                >
+                                  <Minus className="w-3.5 h-3.5 text-rose-400" />
+                                  <span>- Deduct Balance</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveUserMenuId(null);
+                                    handleOpenMessageModal(u);
+                                  }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-blue-400 hover:bg-blue-500/10 rounded-lg transition text-left cursor-pointer"
+                                >
+                                  <Mail className="w-3.5 h-3.5 text-blue-400" />
+                                  <span>Send Message</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveUserMenuId(null);
+                                    setPasswordModalUser(u);
+                                    setAdminNewPasswordInput('');
+                                    setShowModalPassword(false);
+                                  }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-amber-400 hover:bg-amber-500/10 rounded-lg transition text-left cursor-pointer"
+                                >
+                                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                                  <span>Change Password</span>
+                                </button>
+
+                                <div className="h-px bg-slate-800 my-1" />
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveUserMenuId(null);
+                                    setDeleteUserModal(u);
+                                  }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-500 hover:bg-rose-500/20 rounded-lg transition text-left cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                  <span>Delete Account</span>
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -2692,46 +2917,243 @@ export const AdminPortal: React.FC = () => {
         {activeTab === 'announcements' && (
           <div className="space-y-6">
             {/* MARQUEE CARD */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
                     <Megaphone className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-white">Marquee Announcement Ticker</h3>
-                    <p className="text-xs text-slate-400">Updates live across all visitor screens instantly</p>
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <span>Marquee Announcement Ticker</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                        marqueeSettings.enabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'
+                      }`}>
+                        {marqueeSettings.enabled ? 'Broadcasting Live' : 'Ticker Inactive'}
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Top scrolling banner seen across the storefront by all visitors in real-time
+                    </p>
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setMarqueeSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                    marqueeSettings.enabled ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'
-                  }`}
-                >
-                  {marqueeSettings.enabled ? 'Active' : 'Disabled'}
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setMarqueeSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                      marqueeSettings.enabled ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/30' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                    }`}
+                  >
+                    {marqueeSettings.enabled ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                    <span>{marqueeSettings.enabled ? 'Ticker Active' : 'Ticker Disabled'}</span>
+                  </button>
+                </div>
               </div>
 
-              <form onSubmit={handleSaveMarquee} className="space-y-4">
-                <textarea
-                  rows={2}
-                  required
-                  value={marqueeSettings.text}
-                  onChange={(e) => setMarqueeSettings(prev => ({ ...prev, text: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
-                />
+              <form onSubmit={handleSaveMarquee} className="space-y-6">
+                {/* 1. BADGE / LABEL CONFIGURATION (EXPLICIT USER REQUEST) */}
+                <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 sm:p-5 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                    <div>
+                      <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <Tag className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Left Ticker Badge Label</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Controls the prominent label displayed at the beginning of the marquee ticker (currently &quot;Stock Update&quot;)
+                      </p>
+                    </div>
 
-                <div className="flex justify-end">
+                    {/* Enable / Disable Badge Toggle */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-400 font-medium">Badge Display:</span>
+                      <button
+                        type="button"
+                        onClick={() => setMarqueeSettings(prev => ({ 
+                          ...prev, 
+                          showBadge: prev.showBadge === false ? true : false 
+                        }))}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                          marqueeSettings.showBadge !== false
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'
+                        }`}
+                      >
+                        {marqueeSettings.showBadge !== false ? <Eye className="w-3.5 h-3.5 text-amber-400" /> : <EyeOff className="w-3.5 h-3.5" />}
+                        <span>{marqueeSettings.showBadge !== false ? 'Label Badge Visible' : 'Label Badge Hidden'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Badge Text Input & Presets */}
+                  <div className="space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                      <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                        <span>Label Text:</span>
+                        <span className="text-[10px] text-slate-500">(Displayed in all-caps badge)</span>
+                      </label>
+                      <span className="text-[10px] text-amber-400/90 font-mono">
+                        Current: &ldquo;{marqueeSettings.badgeText?.trim() || 'Stock Update'}&rdquo;
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={marqueeSettings.badgeText ?? 'Stock Update'}
+                        onChange={(e) => setMarqueeSettings(prev => ({ ...prev, badgeText: e.target.value }))}
+                        placeholder="e.g. Stock Update, Alert, Notice, Special Offer..."
+                        disabled={marqueeSettings.showBadge === false}
+                        className={`w-full bg-slate-900 border rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500 font-semibold tracking-wide transition ${
+                          marqueeSettings.showBadge === false ? 'opacity-40 border-slate-800 cursor-not-allowed' : 'border-slate-700'
+                        }`}
+                      />
+                    </div>
+
+                    {/* Quick Preset Chips */}
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                        Quick Preset Labels:
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          'Stock Update',
+                          'Urgent Alert',
+                          'Special Offer',
+                          'Important Notice',
+                          'New Stock',
+                          'Maintenance',
+                          'Notice',
+                          'Announcement'
+                        ].map((preset) => {
+                          const isSelected = (marqueeSettings.badgeText?.trim() || 'Stock Update').toLowerCase() === preset.toLowerCase();
+                          return (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => setMarqueeSettings(prev => ({ 
+                                ...prev, 
+                                badgeText: preset,
+                                showBadge: true 
+                              }))}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer border ${
+                                isSelected
+                                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-xs'
+                                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
+                              }`}
+                            >
+                              {preset}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. MARQUEE TEXT & SCROLL SPEED */}
+                <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                      <FileText className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Marquee Message Content</span>
+                    </label>
+
+                    {/* Speed Selector */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-slate-400 font-medium">Scroll Speed:</span>
+                      {(['slow', 'normal', 'fast'] as const).map((spd) => (
+                        <button
+                          key={spd}
+                          type="button"
+                          onClick={() => setMarqueeSettings(prev => ({ ...prev, speed: spd }))}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold capitalize transition cursor-pointer border ${
+                            marqueeSettings.speed === spd
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-900'
+                          }`}
+                        >
+                          {spd}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <textarea
+                    rows={3}
+                    required
+                    value={marqueeSettings.text}
+                    onChange={(e) => setMarqueeSettings(prev => ({ ...prev, text: e.target.value }))}
+                    placeholder="Enter announcement text to scroll continuously across visitor screens..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-xs text-white focus:outline-none focus:border-amber-500 font-medium leading-relaxed"
+                  />
+                  <div className="flex justify-between items-center text-[10px] text-slate-500">
+                    <span>💡 Tip: Keep message clear with key product announcements, timings, or payment details.</span>
+                    <span className="font-mono">{marqueeSettings.text.length} characters</span>
+                  </div>
+                </div>
+
+                {/* 3. LIVE INTERACTIVE TICKER PREVIEW */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Live Storefront Preview</span>
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      {marqueeSettings.enabled ? 'Preview as seen by visitors' : 'Ticker currently disabled (hidden on site)'}
+                    </span>
+                  </div>
+
+                  <div className={`relative w-full rounded-xl border overflow-hidden p-2.5 sm:p-3 transition ${
+                    marqueeSettings.enabled 
+                      ? 'bg-amber-500/[0.08] border-amber-500/30 text-amber-100' 
+                      : 'bg-slate-950/60 border-slate-800 text-slate-500 opacity-60'
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      {/* Badge Preview */}
+                      {marqueeSettings.showBadge !== false ? (
+                        <div className="flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-400/50 rounded-lg text-amber-300 text-[10px] sm:text-xs font-bold shadow-xs">
+                          <Megaphone className="w-3 h-3 text-amber-400 animate-pulse" />
+                          <span className="tracking-wide uppercase text-[10px]">
+                            {(marqueeSettings.badgeText?.trim()) || 'STOCK UPDATE'}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-mono text-slate-500 bg-slate-900 border border-slate-800">
+                          (No Badge)
+                        </div>
+                      )}
+
+                      {/* Text Preview */}
+                      <div className="flex-1 overflow-hidden whitespace-nowrap text-xs font-medium text-slate-200">
+                        <span>{marqueeSettings.text || 'Welcome to FBStore! Instant Delivery Guaranteed.'}</span>
+                      </div>
+
+                      {/* Dismiss Mock */}
+                      <div className="flex-shrink-0 p-1 text-slate-500">
+                        <X className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. SUBMIT ACTION */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-800">
+                  <div className="text-[11px] text-slate-400">
+                    Saves to database and broadcasts instantly via Real-time Stream &amp; Firestore.
+                  </div>
+
                   <button
                     type="submit"
                     disabled={isSavingMarquee}
-                    className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-2 cursor-pointer"
+                    className="px-6 py-2.5 bg-amber-600 hover:bg-amber-500 active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-lg shadow-amber-900/30 flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
                   >
-                    <Check className="w-4 h-4" />
-                    <span>Save & Update Marquee Live</span>
+                    {isSavingMarquee ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    <span>{isSavingMarquee ? 'Broadcasting Update...' : 'Save & Update Marquee Live'}</span>
                   </button>
                 </div>
               </form>
@@ -3088,6 +3510,88 @@ export const AdminPortal: React.FC = () => {
 
               <form onSubmit={handleSaveSettings} className="space-y-6">
                 
+                {/* 0. STORE BOXES DISPLAY ORDER / POSITIONING SELECTOR */}
+                <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 rounded-2xl space-y-3 shadow-lg">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-400 flex items-center justify-center shrink-0">
+                        <ArrowUpDown className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                          <span>Store Boxes Display Order</span>
+                          <span className="text-[10px] px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded-full font-normal">
+                            Konsa Upar Show Hoga Aur Konsa Niche
+                          </span>
+                        </h4>
+                        <p className="text-[11px] text-slate-400">
+                          Select which product box is displayed first at the top of the storefront
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSettingsForm(prev => ({ ...prev, boxesDisplayOrder: 'simple_first' }))}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                          settingsForm.boxesDisplayOrder === 'simple_first'
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25 ring-2 ring-blue-400'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                        <span>1. Simple ID Upar (Top)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSettingsForm(prev => ({ ...prev, boxesDisplayOrder: 'verified_first' }))}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                          settingsForm.boxesDisplayOrder === 'verified_first'
+                            ? 'bg-cyan-600 text-white shadow-md shadow-cyan-500/25 ring-2 ring-cyan-400'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        <Crown className="w-3.5 h-3.5 text-cyan-200" />
+                        <span>1. Verified ID Upar (Top)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 text-xs">
+                    <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
+                      settingsForm.boxesDisplayOrder === 'simple_first'
+                        ? 'bg-blue-500/10 border-blue-500/40 text-blue-300 font-bold'
+                        : 'bg-slate-900/60 border-slate-800 text-slate-400'
+                    }`}>
+                      <span className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-blue-600/30 border border-blue-500/50 flex items-center justify-center text-[10px]">
+                          {settingsForm.boxesDisplayOrder === 'simple_first' ? '1' : '2'}
+                        </span>
+                        <span>Facebook Simple Accounts</span>
+                      </span>
+                      <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-slate-800">
+                        {settingsForm.boxesDisplayOrder === 'simple_first' ? '⬆️ Top Position' : '⬇️ Bottom Position'}
+                      </span>
+                    </div>
+
+                    <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
+                      settingsForm.boxesDisplayOrder === 'verified_first'
+                        ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-300 font-bold'
+                        : 'bg-slate-900/60 border-slate-800 text-slate-400'
+                    }`}>
+                      <span className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-cyan-600/30 border border-cyan-500/50 flex items-center justify-center text-[10px]">
+                          {settingsForm.boxesDisplayOrder === 'verified_first' ? '1' : '2'}
+                        </span>
+                        <span>Facebook Verified Accounts</span>
+                      </span>
+                      <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-slate-800">
+                        {settingsForm.boxesDisplayOrder === 'verified_first' ? '⬆️ Top Position' : '⬇️ Bottom Position'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
                 {/* 1. PRODUCT BOX 1: SIMPLE ACCOUNTS CONFIG */}
                 <div className="p-5 bg-slate-950/80 border border-blue-500/30 rounded-2xl space-y-4">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-800">
@@ -3096,25 +3600,44 @@ export const AdminPortal: React.FC = () => {
                         FB
                       </div>
                       <div>
-                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                          Facebook Simple Accounts Box
+                        <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                          <span>Facebook Simple Accounts Box</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
+                            Position: {settingsForm.boxesDisplayOrder === 'simple_first' ? '#1 Top (Upar)' : '#2 Bottom (Niche)'}
+                          </span>
                         </h4>
                         <span className="text-[11px] text-slate-400">Standard UID:Password accounts</span>
                       </div>
                     </div>
 
-                    {/* Enable/Disable Toggle */}
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
-                      <input
-                        type="checkbox"
-                        checked={settingsForm.simpleAccountsEnabled}
-                        onChange={(e) => setSettingsForm(prev => ({ ...prev, simpleAccountsEnabled: e.target.checked }))}
-                        className="w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700"
-                      />
-                      <span className={settingsForm.simpleAccountsEnabled ? 'text-emerald-400' : 'text-slate-500'}>
-                        {settingsForm.simpleAccountsEnabled ? 'Box Enabled' : 'Box Disabled'}
-                      </span>
-                    </label>
+                    <div className="flex items-center gap-3">
+                      {/* Quick Move Up/Down button */}
+                      <button
+                        type="button"
+                        onClick={() => setSettingsForm(prev => ({ 
+                          ...prev, 
+                          boxesDisplayOrder: prev.boxesDisplayOrder === 'simple_first' ? 'verified_first' : 'simple_first' 
+                        }))}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+                        title="Toggle position up or down"
+                      >
+                        <ArrowUpDown className="w-3 h-3 text-indigo-400" />
+                        <span>{settingsForm.boxesDisplayOrder === 'simple_first' ? 'Move to Bottom ⬇️' : 'Move to Top ⬆️'}</span>
+                      </button>
+
+                      {/* Enable/Disable Toggle */}
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
+                        <input
+                          type="checkbox"
+                          checked={settingsForm.simpleAccountsEnabled}
+                          onChange={(e) => setSettingsForm(prev => ({ ...prev, simpleAccountsEnabled: e.target.checked }))}
+                          className="w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700"
+                        />
+                        <span className={settingsForm.simpleAccountsEnabled ? 'text-emerald-400' : 'text-slate-500'}>
+                          {settingsForm.simpleAccountsEnabled ? 'Box Enabled' : 'Box Disabled'}
+                        </span>
+                      </label>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3151,17 +3674,99 @@ export const AdminPortal: React.FC = () => {
                   </div>
 
                   {settingsForm.simpleOfferEnabled && (
-                    <div>
-                      <label className="block text-xs font-semibold text-amber-300 mb-1">
-                        Optional Offer Message (Displayed on Simple Accounts Box)
-                      </label>
-                      <input
-                        type="text"
-                        value={settingsForm.simpleOfferMessage}
-                        onChange={(e) => setSettingsForm(prev => ({ ...prev, simpleOfferMessage: e.target.value }))}
-                        placeholder="e.g. 🔥 Weekend Sale - Buy 5 Get Discount!"
-                        className="w-full bg-slate-900 border border-amber-500/50 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
-                      />
+                    <div className="space-y-3 pt-1">
+                      <div>
+                        <label className="block text-xs font-semibold text-amber-300 mb-1">
+                          Optional Offer Message (Displayed on Simple Accounts Box)
+                        </label>
+                        <input
+                          type="text"
+                          value={settingsForm.simpleOfferMessage}
+                          onChange={(e) => setSettingsForm(prev => ({ ...prev, simpleOfferMessage: e.target.value }))}
+                          placeholder="e.g. 🔥 Weekend Sale - Buy 5 Get Discount!"
+                          className="w-full bg-slate-900 border border-amber-500/50 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+
+                      {/* Offer Theme Color Customizer for Simple Accounts */}
+                      <div className="p-3.5 bg-slate-900/90 rounded-xl border border-slate-800 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                            <Palette className="w-4 h-4 text-amber-400" />
+                            <span>Offer Box Color (Koi Bhi Color Choose Karein)</span>
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-mono font-bold text-slate-300 uppercase">
+                              {settingsForm.simpleOfferColor || '#f59e0b'}
+                            </span>
+                            <div 
+                              className="w-5 h-5 rounded-full border border-white/30 shadow-sm" 
+                              style={{ backgroundColor: settingsForm.simpleOfferColor || '#f59e0b' }} 
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                          {/* Color input & hex field */}
+                          <div className="flex items-center gap-2 bg-slate-950 px-2 py-1.5 rounded-xl border border-slate-700">
+                            <input
+                              type="color"
+                              value={settingsForm.simpleOfferColor || '#f59e0b'}
+                              onChange={(e) => setSettingsForm(prev => ({ ...prev, simpleOfferColor: e.target.value }))}
+                              className="w-7 h-7 rounded cursor-pointer bg-transparent border-0"
+                            />
+                            <input
+                              type="text"
+                              value={settingsForm.simpleOfferColor || '#f59e0b'}
+                              onChange={(e) => setSettingsForm(prev => ({ ...prev, simpleOfferColor: e.target.value }))}
+                              placeholder="#f59e0b"
+                              className="w-20 bg-transparent text-xs font-mono font-bold text-white focus:outline-none"
+                            />
+                          </div>
+
+                          {/* Preset swatches */}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {[
+                              { label: 'Amber Gold', color: '#f59e0b' },
+                              { label: 'Sunset Orange', color: '#f97316' },
+                              { label: 'Crimson Red', color: '#ef4444' },
+                              { label: 'Emerald Green', color: '#10b981' },
+                              { label: 'Electric Cyan', color: '#06b6d4' },
+                              { label: 'Royal Blue', color: '#3b82f6' },
+                              { label: 'Neon Purple', color: '#8b5cf6' },
+                              { label: 'Hot Pink', color: '#ec4899' },
+                              { label: 'Yellow Gold', color: '#eab308' },
+                            ].map((c) => (
+                              <button
+                                key={c.color}
+                                type="button"
+                                title={c.label}
+                                onClick={() => setSettingsForm(prev => ({ ...prev, simpleOfferColor: c.color }))}
+                                className={`w-6 h-6 rounded-full border transition-transform hover:scale-110 cursor-pointer ${
+                                  (settingsForm.simpleOfferColor || '#f59e0b').toLowerCase() === c.color.toLowerCase()
+                                    ? 'ring-2 ring-white scale-110 border-white'
+                                    : 'border-white/20'
+                                }`}
+                                style={{ backgroundColor: c.color }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Live Preview Ribbon */}
+                        <div 
+                          className="p-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-between shadow-md transition-all"
+                          style={{ backgroundColor: settingsForm.simpleOfferColor || '#f59e0b' }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Flame className="w-4 h-4 fill-white" />
+                            <span>Preview: Simple Accounts Offer Ribbon & Glow</span>
+                          </div>
+                          <span className="text-[10px] bg-black/30 backdrop-blur-xs px-2.5 py-0.5 rounded-full uppercase tracking-wider font-mono">
+                            Live Color Preview
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -3174,26 +3779,44 @@ export const AdminPortal: React.FC = () => {
                         <BadgeCheck className="w-4 h-4" />
                       </div>
                       <div>
-                        <h4 className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-1">
+                        <h4 className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-2">
                           <span>Facebook Verified Accounts Box</span>
-                          <Star className="w-3 h-3 text-cyan-400 fill-cyan-400" />
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
+                            Position: {settingsForm.boxesDisplayOrder === 'verified_first' ? '#1 Top (Upar)' : '#2 Bottom (Niche)'}
+                          </span>
                         </h4>
                         <span className="text-[11px] text-slate-400">VIP High Trust Verified Accounts</span>
                       </div>
                     </div>
 
-                    {/* Enable/Disable Toggle */}
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
-                      <input
-                        type="checkbox"
-                        checked={settingsForm.verifiedAccountsEnabled}
-                        onChange={(e) => setSettingsForm(prev => ({ ...prev, verifiedAccountsEnabled: e.target.checked }))}
-                        className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-slate-700"
-                      />
-                      <span className={settingsForm.verifiedAccountsEnabled ? 'text-cyan-400' : 'text-slate-500'}>
-                        {settingsForm.verifiedAccountsEnabled ? 'Box Enabled' : 'Box Disabled'}
-                      </span>
-                    </label>
+                    <div className="flex items-center gap-3">
+                      {/* Quick Move Up/Down button */}
+                      <button
+                        type="button"
+                        onClick={() => setSettingsForm(prev => ({ 
+                          ...prev, 
+                          boxesDisplayOrder: prev.boxesDisplayOrder === 'verified_first' ? 'simple_first' : 'verified_first' 
+                        }))}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+                        title="Toggle position up or down"
+                      >
+                        <ArrowUpDown className="w-3 h-3 text-cyan-400" />
+                        <span>{settingsForm.boxesDisplayOrder === 'verified_first' ? 'Move to Bottom ⬇️' : 'Move to Top ⬆️'}</span>
+                      </button>
+
+                      {/* Enable/Disable Toggle */}
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
+                        <input
+                          type="checkbox"
+                          checked={settingsForm.verifiedAccountsEnabled}
+                          onChange={(e) => setSettingsForm(prev => ({ ...prev, verifiedAccountsEnabled: e.target.checked }))}
+                          className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-slate-700"
+                        />
+                        <span className={settingsForm.verifiedAccountsEnabled ? 'text-cyan-400' : 'text-slate-500'}>
+                          {settingsForm.verifiedAccountsEnabled ? 'Box Enabled' : 'Box Disabled'}
+                        </span>
+                      </label>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3230,17 +3853,99 @@ export const AdminPortal: React.FC = () => {
                   </div>
 
                   {settingsForm.verifiedOfferEnabled && (
-                    <div>
-                      <label className="block text-xs font-semibold text-cyan-300 mb-1">
-                        Optional Offer Message (Displayed on Verified Accounts Box)
-                      </label>
-                      <input
-                        type="text"
-                        value={settingsForm.verifiedOfferMessage}
-                        onChange={(e) => setSettingsForm(prev => ({ ...prev, verifiedOfferMessage: e.target.value }))}
-                        placeholder="e.g. ⭐ VIP Blue Verified Profiles on Special Offer!"
-                        className="w-full bg-slate-900 border border-cyan-500/50 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
-                      />
+                    <div className="space-y-3 pt-1">
+                      <div>
+                        <label className="block text-xs font-semibold text-cyan-300 mb-1">
+                          Optional Offer Message (Displayed on Verified Accounts Box)
+                        </label>
+                        <input
+                          type="text"
+                          value={settingsForm.verifiedOfferMessage}
+                          onChange={(e) => setSettingsForm(prev => ({ ...prev, verifiedOfferMessage: e.target.value }))}
+                          placeholder="e.g. ⭐ VIP Blue Verified Profiles on Special Offer!"
+                          className="w-full bg-slate-900 border border-cyan-500/50 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
+                        />
+                      </div>
+
+                      {/* Offer Theme Color Customizer for Verified Accounts */}
+                      <div className="p-3.5 bg-slate-900/90 rounded-xl border border-slate-800 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                            <Palette className="w-4 h-4 text-cyan-400" />
+                            <span>Offer Box Color (Koi Bhi Color Choose Karein)</span>
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-mono font-bold text-slate-300 uppercase">
+                              {settingsForm.verifiedOfferColor || '#06b6d4'}
+                            </span>
+                            <div 
+                              className="w-5 h-5 rounded-full border border-white/30 shadow-sm" 
+                              style={{ backgroundColor: settingsForm.verifiedOfferColor || '#06b6d4' }} 
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                          {/* Color input & hex field */}
+                          <div className="flex items-center gap-2 bg-slate-950 px-2 py-1.5 rounded-xl border border-slate-700">
+                            <input
+                              type="color"
+                              value={settingsForm.verifiedOfferColor || '#06b6d4'}
+                              onChange={(e) => setSettingsForm(prev => ({ ...prev, verifiedOfferColor: e.target.value }))}
+                              className="w-7 h-7 rounded cursor-pointer bg-transparent border-0"
+                            />
+                            <input
+                              type="text"
+                              value={settingsForm.verifiedOfferColor || '#06b6d4'}
+                              onChange={(e) => setSettingsForm(prev => ({ ...prev, verifiedOfferColor: e.target.value }))}
+                              placeholder="#06b6d4"
+                              className="w-20 bg-transparent text-xs font-mono font-bold text-white focus:outline-none"
+                            />
+                          </div>
+
+                          {/* Preset swatches */}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {[
+                              { label: 'Electric Cyan', color: '#06b6d4' },
+                              { label: 'Royal Indigo', color: '#6366f1' },
+                              { label: 'Neon Purple', color: '#a855f7' },
+                              { label: 'Emerald Green', color: '#10b981' },
+                              { label: 'Amber Gold', color: '#f59e0b' },
+                              { label: 'Crimson Red', color: '#ef4444' },
+                              { label: 'Hot Pink', color: '#ec4899' },
+                              { label: 'Sky Blue', color: '#0ea5e9' },
+                              { label: 'Teal Emerald', color: '#14b8a6' },
+                            ].map((c) => (
+                              <button
+                                key={c.color}
+                                type="button"
+                                title={c.label}
+                                onClick={() => setSettingsForm(prev => ({ ...prev, verifiedOfferColor: c.color }))}
+                                className={`w-6 h-6 rounded-full border transition-transform hover:scale-110 cursor-pointer ${
+                                  (settingsForm.verifiedOfferColor || '#06b6d4').toLowerCase() === c.color.toLowerCase()
+                                    ? 'ring-2 ring-white scale-110 border-white'
+                                    : 'border-white/20'
+                                }`}
+                                style={{ backgroundColor: c.color }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Live Preview Ribbon */}
+                        <div 
+                          className="p-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-between shadow-md transition-all"
+                          style={{ backgroundColor: settingsForm.verifiedOfferColor || '#06b6d4' }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Crown className="w-4 h-4 fill-white" />
+                            <span>Preview: Verified VIP Offer Ribbon & Glow</span>
+                          </div>
+                          <span className="text-[10px] bg-black/30 backdrop-blur-xs px-2.5 py-0.5 rounded-full uppercase tracking-wider font-mono">
+                            Live Color Preview
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -3504,77 +4209,192 @@ export const AdminPortal: React.FC = () => {
       </main>
 
       {/* MODAL 1: DIRECT USER BALANCE ADJUSTMENT */}
-      {balanceModalUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <h3 className="text-sm font-bold text-white">Adjust Balance for @{balanceModalUser.username}</h3>
-              <button onClick={() => setBalanceModalUser(null)} className="text-slate-400 hover:text-white p-1">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-3 bg-slate-950 rounded-xl text-xs flex justify-between">
-              <span className="text-slate-400">Current Balance:</span>
-              <strong className="text-emerald-400 font-mono">Rs. {balanceModalUser.walletBalance} PKR</strong>
-            </div>
-            <form onSubmit={handleUpdateUserBalance} className="space-y-4">
-              <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-950 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setAdjustMode('add')}
-                  className={`py-1.5 text-xs font-bold rounded-lg ${adjustMode === 'add' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
-                >
-                  + Add
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAdjustMode('deduct')}
-                  className={`py-1.5 text-xs font-bold rounded-lg ${adjustMode === 'deduct' ? 'bg-rose-600 text-white' : 'text-slate-400'}`}
-                >
-                  - Deduct
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAdjustMode('set')}
-                  className={`py-1.5 text-xs font-bold rounded-lg ${adjustMode === 'set' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
-                >
-                  Set Total
+      {balanceModalUser && (() => {
+        const currentBal = balanceModalUser.walletBalance || 0;
+        const validAmount = isNaN(adjustAmount) ? 0 : Number(adjustAmount);
+        const projectedBal = adjustMode === 'add' 
+          ? currentBal + validAmount 
+          : adjustMode === 'deduct' 
+            ? Math.max(0, currentBal - validAmount) 
+            : Math.max(0, validAmount);
+
+        const quickAmounts = [50, 100, 200, 500, 1000, 5000];
+        const quickReasons = [
+          'WhatsApp payment verified',
+          'EasyPaisa deposit confirmed',
+          'Manual balance top-up',
+          'System refund / adjustment'
+        ];
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+            <div className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className={`p-2 rounded-xl ${
+                    adjustMode === 'add' ? 'bg-emerald-500/10 text-emerald-400' :
+                    adjustMode === 'deduct' ? 'bg-rose-500/10 text-rose-400' : 'bg-blue-500/10 text-blue-400'
+                  }`}>
+                    <Wallet className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Adjust Balance</h3>
+                    <p className="text-[11px] text-slate-400">Target User: <strong className="text-white">@{balanceModalUser.username}</strong></p>
+                  </div>
+                </div>
+                <button onClick={() => setBalanceModalUser(null)} className="text-slate-400 hover:text-white p-1 cursor-pointer">
+                  <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Amount (PKR)</label>
-                <input
-                  type="number"
-                  min={0}
-                  required
-                  value={adjustAmount}
-                  onChange={(e) => setAdjustAmount(Number(e.target.value))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono text-white"
-                />
+              {/* Advanced Calculation Card */}
+              <div className="p-3.5 bg-slate-950/80 border border-slate-800/90 rounded-xl space-y-2 text-xs">
+                <div className="flex justify-between items-center text-slate-400">
+                  <span>Current Balance:</span>
+                  <span className="font-mono text-slate-200 font-bold">Rs. {currentBal.toLocaleString()} PKR</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-400">
+                  <span>Adjustment:</span>
+                  <span className={`font-mono font-bold ${
+                    adjustMode === 'add' ? 'text-emerald-400' : adjustMode === 'deduct' ? 'text-rose-400' : 'text-blue-400'
+                  }`}>
+                    {adjustMode === 'add' ? '+' : adjustMode === 'deduct' ? '-' : '='} Rs. {validAmount.toLocaleString()} PKR
+                  </span>
+                </div>
+                <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
+                  <span className="font-semibold text-slate-300">Projected New Balance:</span>
+                  <span className="font-mono font-extrabold text-sm text-emerald-400">
+                    Rs. {projectedBal.toLocaleString()} PKR
+                  </span>
+                </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setBalanceModalUser(null)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-bold rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUpdatingBalance}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>Update Balance</span>
-                </button>
-              </div>
-            </form>
+              <form onSubmit={handleUpdateUserBalance} className="space-y-4">
+                {/* Mode Selector */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Adjustment Mode</label>
+                  <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setAdjustMode('add')}
+                      className={`py-2 text-xs font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 ${
+                        adjustMode === 'add' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Funds</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdjustMode('deduct')}
+                      className={`py-2 text-xs font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 ${
+                        adjustMode === 'deduct' ? 'bg-rose-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                      <span>Deduct</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdjustMode('set')}
+                      className={`py-2 text-xs font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 ${
+                        adjustMode === 'set' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Set Exact</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Amount Input */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Amount (PKR)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    required
+                    value={adjustAmount}
+                    onChange={(e) => setAdjustAmount(Math.max(0, Number(e.target.value)))}
+                    className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm font-mono text-white focus:outline-none focus:border-emerald-500"
+                    placeholder="Enter amount..."
+                  />
+
+                  {/* Quick Amount Chips */}
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {quickAmounts.map(amt => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setAdjustAmount(amt)}
+                        className={`px-2.5 py-1 text-[11px] font-mono rounded-lg border transition cursor-pointer ${
+                          adjustAmount === amt 
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold' 
+                            : 'bg-slate-950 hover:bg-slate-800 text-slate-400 border-slate-800 hover:text-slate-200'
+                        }`}
+                      >
+                        +{amt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Reason Input & Quick Presets */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Adjustment Reason / Notes</label>
+                  <input
+                    type="text"
+                    value={adjustReason}
+                    onChange={(e) => setAdjustReason(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    placeholder="Enter reason or note..."
+                  />
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {quickReasons.map(r => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => setAdjustReason(r)}
+                        className="text-[10px] text-slate-500 hover:text-slate-300 underline cursor-pointer mr-2"
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setBalanceModalUser(null)}
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUpdatingBalance}
+                    className={`px-5 py-2.5 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-lg transition cursor-pointer ${
+                      adjustMode === 'add' ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30' :
+                      adjustMode === 'deduct' ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30' :
+                      'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30'
+                    }`}
+                  >
+                    {isUpdatingBalance ? (
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Confirm {adjustMode === 'add' ? 'Add Funds' : adjustMode === 'deduct' ? 'Deduct' : 'Set Balance'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL 2: SCREENSHOT PREVIEW */}
       {previewScreenshot && (
@@ -3833,13 +4653,14 @@ export const AdminPortal: React.FC = () => {
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                   Select Recipient
                 </label>
-                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl mb-2">
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl mb-2.5">
                   <button
                     type="button"
                     onClick={() => {
                       setMsgTargetType('user');
                       if (!msgSelectedUserId && usersList.length > 0) {
                         setMsgSelectedUserId(usersList[0].id);
+                        setManualRecipientInput(usersList[0].username);
                       }
                     }}
                     className={`py-1.5 text-xs font-bold rounded-lg transition ${
@@ -3853,6 +4674,7 @@ export const AdminPortal: React.FC = () => {
                     onClick={() => {
                       setMsgTargetType('all');
                       setMessageTargetUser(null);
+                      setManualRecipientInput('');
                     }}
                     className={`py-1.5 text-xs font-bold rounded-lg transition ${
                       msgTargetType === 'all' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
@@ -3863,22 +4685,64 @@ export const AdminPortal: React.FC = () => {
                 </div>
 
                 {msgTargetType === 'user' && (
-                  <div className="space-y-2">
-                    <select
-                      value={msgSelectedUserId}
-                      onChange={(e) => {
-                        setMsgSelectedUserId(e.target.value);
-                        const found = usersList.find(u => u.id === e.target.value);
-                        if (found) setMessageTargetUser(found);
-                      }}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
-                    >
-                      {usersList.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          @{u.username} ({u.email}) - Wallet: Rs. {u.walletBalance} PKR
-                        </option>
-                      ))}
-                    </select>
+                  <div className="space-y-2 p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                        Select from Registered Users:
+                      </label>
+                      <select
+                        value={msgSelectedUserId}
+                        onChange={(e) => {
+                          setMsgSelectedUserId(e.target.value);
+                          const found = usersList.find(u => u.id === e.target.value);
+                          if (found) {
+                            setMessageTargetUser(found);
+                            setManualRecipientInput(found.username);
+                          }
+                        }}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                      >
+                        {usersList.length === 0 ? (
+                          <option value="">No registered users found</option>
+                        ) : (
+                          usersList.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              @{u.username} ({u.email}) - Wallet: Rs. {u.walletBalance} PKR
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-800/80">
+                      <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                        Or Type Username / Email Directly:
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={manualRecipientInput}
+                          onChange={(e) => {
+                            setManualRecipientInput(e.target.value);
+                            const val = e.target.value.trim().toLowerCase();
+                            const found = usersList.find(u => 
+                              u.username.toLowerCase() === val || 
+                              u.email.toLowerCase() === val || 
+                              u.id.toLowerCase() === val
+                            );
+                            if (found) {
+                              setMessageTargetUser(found);
+                              setMsgSelectedUserId(found.id);
+                            }
+                          }}
+                          placeholder="Type username (e.g. arslan481) or email address..."
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 placeholder-slate-500 font-mono"
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        You can send to any user by typing their username or email directly, even if they logged in recently.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
@@ -3954,12 +4818,34 @@ export const AdminPortal: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
+                      setMsgTitle('Payment Proof Verification Needed');
+                      setMsgBody('Hello, we could not clearly verify your deposit screenshot. Please submit a new deposit request with a clear receipt showing your Transaction ID (TID) or contact admin on WhatsApp.');
+                      setMsgPriority('high');
+                    }}
+                    className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-[11px] text-amber-300 border border-slate-800 rounded-lg transition"
+                  >
+                    ⚠️ Screenshot Unclear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMsgTitle('Account Replacement Details');
+                      setMsgBody('Hello, here are your replacement account credentials. Please log in using the UID:Password provided and check immediately. Thank you!');
+                      setMsgPriority('normal');
+                    }}
+                    className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-[11px] text-blue-300 border border-slate-800 rounded-lg transition"
+                  >
+                    🔑 Account Replacement
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
                       setMsgTitle('Important Account Notice');
                       setMsgBody('Please make sure to back up your purchased UID:Password and cookie data immediately upon purchase. For any queries, contact admin.');
                     }}
                     className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-[11px] text-slate-300 border border-slate-800 rounded-lg transition"
                   >
-                    ⚠️ Security Notice
+                    🚨 Security Notice
                   </button>
                   <button
                     type="button"
@@ -4065,7 +4951,7 @@ export const AdminPortal: React.FC = () => {
                 <span className="text-slate-500">Wallet Balance: </span>
                 <span className="text-emerald-400 font-mono font-bold">Rs. {passwordModalUser.walletBalance} PKR</span>
               </div>
-              {passwordModalUser.plainPassword && (
+              {passwordModalUser.plainPassword ? (
                 <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
                   <span className="text-slate-400">Saved Password:</span>
                   <div className="flex items-center gap-2">
@@ -4080,7 +4966,25 @@ export const AdminPortal: React.FC = () => {
                     >
                       {showModalPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (passwordModalUser.plainPassword) {
+                          navigator.clipboard.writeText(passwordModalUser.plainPassword);
+                          showToast('Copied', 'User password copied to clipboard!', 'success');
+                        }
+                      }}
+                      className="text-slate-400 hover:text-white p-1"
+                      title="Copy Password"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
                   </div>
+                </div>
+              ) : (
+                <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-slate-500 text-[11px]">
+                  <span>Current Password:</span>
+                  <span className="italic">Not set yet (enter new password below)</span>
                 </div>
               )}
             </div>
@@ -4177,98 +5081,192 @@ export const AdminPortal: React.FC = () => {
       )}
 
       {/* MODAL 8: TOTAL LIFETIME BALANCE ADJUSTMENT */}
-      {totalBalanceModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <Wallet className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-sm font-bold text-white">Adjust Lifetime Balance Added Stat</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setTotalBalanceModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {totalBalanceModalOpen && (() => {
+        const currentTotal = totalLifetimeBalanceAdded || 0;
+        const validAmount = isNaN(totalBalanceInput) ? 0 : Number(totalBalanceInput);
+        const projectedTotal = totalBalanceMode === 'add'
+          ? currentTotal + validAmount
+          : totalBalanceMode === 'deduct'
+            ? Math.max(0, currentTotal - validAmount)
+            : totalBalanceMode === 'set'
+              ? Math.max(0, validAmount)
+              : 0;
 
-            <div className="p-3 bg-slate-950 rounded-xl text-xs flex justify-between border border-slate-800">
-              <span className="text-slate-400">Current Counter Stat:</span>
-              <strong className="text-emerald-400 font-mono text-sm">
-                Rs. {(totalLifetimeBalanceAdded || 0).toLocaleString()} PKR
-              </strong>
-            </div>
+        const quickTotalChips = [100, 500, 1000, 5000, 10000, 50000];
 
-            <form onSubmit={handleAdjustTotalLifetimeBalance} className="space-y-4">
-              <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-950 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setTotalBalanceMode('deduct')}
-                  className={`py-1.5 text-xs font-bold rounded-lg ${totalBalanceMode === 'deduct' ? 'bg-rose-600 text-white' : 'text-slate-400'}`}
-                >
-                  - Deduct
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTotalBalanceMode('set')}
-                  className={`py-1.5 text-xs font-bold rounded-lg ${totalBalanceMode === 'set' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
-                >
-                  Set Total
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTotalBalanceMode('reset')}
-                  className={`py-1.5 text-xs font-bold rounded-lg ${totalBalanceMode === 'reset' ? 'bg-amber-600 text-white' : 'text-slate-400'}`}
-                >
-                  Reset to 0
-                </button>
-              </div>
-
-              {totalBalanceMode !== 'reset' && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Amount (PKR)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    required
-                    value={totalBalanceInput}
-                    onChange={(e) => setTotalBalanceInput(Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
-                  />
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+            <div className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className={`p-2 rounded-xl ${
+                    totalBalanceMode === 'add' ? 'bg-emerald-500/10 text-emerald-400' :
+                    totalBalanceMode === 'deduct' ? 'bg-rose-500/10 text-rose-400' :
+                    totalBalanceMode === 'set' ? 'bg-blue-500/10 text-blue-400' : 'bg-amber-500/10 text-amber-400'
+                  }`}>
+                    <Wallet className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Total Lifetime Balance Stat</h3>
+                    <p className="text-[11px] text-slate-400">Store-wide cumulative balance counter</p>
+                  </div>
                 </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setTotalBalanceModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+                  className="text-slate-400 hover:text-white p-1 cursor-pointer"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isAdjustingTotal}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 cursor-pointer"
-                >
-                  {isAdjustingTotal ? (
-                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>{totalBalanceMode === 'reset' ? 'Reset Counter to 0' : 'Update Counter'}</span>
-                    </>
-                  )}
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </form>
+
+              {/* Advanced Calculation Card */}
+              <div className="p-3.5 bg-slate-950/80 border border-slate-800/90 rounded-xl space-y-2 text-xs">
+                <div className="flex justify-between items-center text-slate-400">
+                  <span>Current Stat:</span>
+                  <span className="font-mono text-slate-200 font-bold">Rs. {currentTotal.toLocaleString()} PKR</span>
+                </div>
+                {totalBalanceMode !== 'reset' && (
+                  <div className="flex justify-between items-center text-slate-400">
+                    <span>Operation:</span>
+                    <span className={`font-mono font-bold ${
+                      totalBalanceMode === 'add' ? 'text-emerald-400' :
+                      totalBalanceMode === 'deduct' ? 'text-rose-400' : 'text-blue-400'
+                    }`}>
+                      {totalBalanceMode === 'add' ? '+' : totalBalanceMode === 'deduct' ? '-' : '='} Rs. {validAmount.toLocaleString()} PKR
+                    </span>
+                  </div>
+                )}
+                <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
+                  <span className="font-semibold text-slate-300">Projected New Stat:</span>
+                  <span className={`font-mono font-extrabold text-sm ${
+                    totalBalanceMode === 'reset' ? 'text-amber-400' : 'text-emerald-400'
+                  }`}>
+                    Rs. {projectedTotal.toLocaleString()} PKR
+                  </span>
+                </div>
+              </div>
+
+              <form onSubmit={handleAdjustTotalLifetimeBalance} className="space-y-4">
+                {/* Mode Selector */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Adjustment Action</label>
+                  <div className="grid grid-cols-4 gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setTotalBalanceMode('add')}
+                      className={`py-2 text-[11px] font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 ${
+                        totalBalanceMode === 'add' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Add</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTotalBalanceMode('deduct')}
+                      className={`py-2 text-[11px] font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 ${
+                        totalBalanceMode === 'deduct' ? 'bg-rose-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Minus className="w-3 h-3" />
+                      <span>Deduct</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTotalBalanceMode('set')}
+                      className={`py-2 text-[11px] font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 ${
+                        totalBalanceMode === 'set' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Edit3 className="w-3 h-3" />
+                      <span>Set</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTotalBalanceMode('reset')}
+                      className={`py-2 text-[11px] font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 ${
+                        totalBalanceMode === 'reset' ? 'bg-amber-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Reset</span>
+                    </button>
+                  </div>
+                </div>
+
+                {totalBalanceMode !== 'reset' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Amount (PKR)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      required
+                      value={totalBalanceInput}
+                      onChange={(e) => setTotalBalanceInput(Math.max(0, Number(e.target.value)))}
+                      className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-emerald-500"
+                      placeholder="Enter amount..."
+                    />
+
+                    {/* Quick Amount Chips */}
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {quickTotalChips.map(amt => (
+                        <button
+                          key={amt}
+                          type="button"
+                          onClick={() => setTotalBalanceInput(amt)}
+                          className={`px-2.5 py-1 text-[11px] font-mono rounded-lg border transition cursor-pointer ${
+                            totalBalanceInput === amt 
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold' 
+                              : 'bg-slate-950 hover:bg-slate-800 text-slate-400 border-slate-800 hover:text-slate-200'
+                          }`}
+                        >
+                          +{amt.toLocaleString()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setTotalBalanceModalOpen(false)}
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isAdjustingTotal}
+                    className={`px-5 py-2.5 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 cursor-pointer transition ${
+                      totalBalanceMode === 'reset' ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/30' :
+                      totalBalanceMode === 'add' ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30' :
+                      totalBalanceMode === 'deduct' ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30' :
+                      'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30'
+                    }`}
+                  >
+                    {isAdjustingTotal ? (
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>
+                          {totalBalanceMode === 'reset' ? 'Reset Stat to 0' : 
+                           totalBalanceMode === 'add' ? 'Add to Total Stat' :
+                           totalBalanceMode === 'deduct' ? 'Deduct from Total Stat' : 'Set Total Stat'}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
     </div>
   );

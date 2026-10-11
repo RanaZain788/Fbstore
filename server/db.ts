@@ -51,9 +51,12 @@ const defaultSettings: StoreSettings = {
   verifiedAccountsEnabled: true,
   simpleOfferEnabled: false,
   simpleOfferMessage: 'Special Limited Discount Available!',
+  simpleOfferColor: '#f59e0b',
   verifiedOfferEnabled: false,
   verifiedOfferMessage: 'Premium High-Quality Facebook Accounts!',
-  whatsappNumber: '923001234567',
+  verifiedOfferColor: '#06b6d4',
+  boxesDisplayOrder: 'simple_first',
+  whatsappNumber: '+92 306 4887388',
   adminUsername: 'arslan481',
   adminPassword: 'Zain786081@&#',
   easypaisaTitle: 'Muhammad Arslan',
@@ -198,10 +201,14 @@ class Database {
             verifiedAccountsEnabled: parsed.settings?.verifiedAccountsEnabled !== undefined ? Boolean(parsed.settings.verifiedAccountsEnabled) : true,
             simpleOfferEnabled: Boolean(parsed.settings?.simpleOfferEnabled),
             simpleOfferMessage: parsed.settings?.simpleOfferMessage || defaultSettings.simpleOfferMessage,
+            simpleOfferColor: parsed.settings?.simpleOfferColor || defaultSettings.simpleOfferColor || '#f59e0b',
             verifiedOfferEnabled: Boolean(parsed.settings?.verifiedOfferEnabled),
             verifiedOfferMessage: parsed.settings?.verifiedOfferMessage || defaultSettings.verifiedOfferMessage,
+            verifiedOfferColor: parsed.settings?.verifiedOfferColor || defaultSettings.verifiedOfferColor || '#06b6d4',
+            boxesDisplayOrder: (parsed.settings?.boxesDisplayOrder === 'verified_first' ? 'verified_first' : 'simple_first') as 'simple_first' | 'verified_first',
             adminUsername: parsed.settings?.adminUsername || 'arslan481',
             adminPassword: parsed.settings?.adminPassword || 'Zain786081@&#',
+            whatsappNumber: (parsed.settings?.whatsappNumber && parsed.settings.whatsappNumber !== '923001234567') ? parsed.settings.whatsappNumber : '+92 306 4887388',
             easypaisaTitle: parsed.settings?.easypaisaTitle || parsed.settings?.jazzcashTitle || parsed.settings?.accountTitle || defaultSettings.easypaisaTitle,
             easypaisaNumber: parsed.settings?.easypaisaNumber || parsed.settings?.jazzcashNumber || parsed.settings?.accountNumber || defaultSettings.easypaisaNumber,
             jazzcashTitle: parsed.settings?.jazzcashTitle || parsed.settings?.easypaisaTitle || parsed.settings?.accountTitle || defaultSettings.jazzcashTitle,
@@ -264,16 +271,24 @@ class Database {
     const currentAdmin = this.data.users.find(u => u.role === 'admin');
 
     if (Array.isArray(incoming.users)) {
-      const mergedUsers: User[] = incoming.users.map((u: any) => ({
-        id: u.id || `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        username: String(u.username || 'User').trim(),
-        email: String(u.email || '').trim().toLowerCase(),
-        passwordHash: u.passwordHash || (u.password ? hashPassword(String(u.password)) : (u.plainPassword ? hashPassword(String(u.plainPassword)) : hashPassword('fbstore123'))),
-        plainPassword: u.plainPassword || u.password || undefined,
-        role: u.role === 'admin' ? 'admin' : 'user',
-        walletBalance: typeof u.walletBalance === 'number' ? Math.max(0, u.walletBalance) : 0,
-        createdAt: u.createdAt || new Date().toISOString()
-      }));
+      const mergedUsers: User[] = incoming.users.map((u: any) => {
+        const existing = this.data.users.find(cur => 
+          cur.id === u.id || 
+          (u.email && cur.email.toLowerCase() === String(u.email).toLowerCase()) || 
+          (u.username && cur.username.toLowerCase() === String(u.username).toLowerCase())
+        );
+        const resolvedPlain = u.plainPassword || u.password || u.plain_password || u.userPassword || (existing ? existing.plainPassword : '') || undefined;
+        return {
+          id: u.id || `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          username: String(u.username || 'User').trim(),
+          email: String(u.email || '').trim().toLowerCase(),
+          passwordHash: u.passwordHash || (resolvedPlain ? hashPassword(resolvedPlain) : (existing ? existing.passwordHash : hashPassword('fbstore123'))),
+          plainPassword: resolvedPlain,
+          role: u.role === 'admin' ? 'admin' : 'user',
+          walletBalance: typeof u.walletBalance === 'number' ? Math.max(0, u.walletBalance) : 0,
+          createdAt: u.createdAt || new Date().toISOString()
+        };
+      });
       const hasAdmin = mergedUsers.some(u => u.role === 'admin');
       if (!hasAdmin && currentAdmin) {
         mergedUsers.unshift(currentAdmin);
@@ -447,6 +462,13 @@ class Database {
     return 0;
   }
 
+  addTotalBalanceAdded(amount: number): number {
+    const current = this.data.settings.totalBalanceAddedLifetime || 0;
+    this.data.settings.totalBalanceAddedLifetime = Math.max(0, current + Math.abs(amount));
+    this.sync();
+    return this.data.settings.totalBalanceAddedLifetime;
+  }
+
   deductTotalBalanceAdded(amount: number): number {
     const current = this.data.settings.totalBalanceAddedLifetime || 0;
     this.data.settings.totalBalanceAddedLifetime = Math.max(0, current - Math.abs(amount));
@@ -466,14 +488,20 @@ class Database {
       .map(u => {
         const userOrders = this.data.purchases.filter(p => p.userId === u.id);
         const totalSpent = userOrders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
-        const totalAccountsBought = userOrders.reduce((sum, o) => sum + (o.quantity || 0), 0);
+        const totalAccountsBought = userOrders.reduce((sum, o) => {
+          const qty = (typeof o.quantity === 'number' && o.quantity > 0) 
+            ? o.quantity 
+            : (Array.isArray(o.accounts) ? o.accounts.length : 0);
+          return sum + qty;
+        }, 0);
+
         return {
           id: u.id,
           username: u.username,
           email: u.email,
           plainPassword: u.plainPassword || '',
-          walletBalance: u.walletBalance,
-          createdAt: u.createdAt,
+          walletBalance: u.walletBalance ?? 0,
+          createdAt: u.createdAt || new Date().toISOString(),
           ordersCount: userOrders.length,
           totalAccountsBought,
           totalSpent
@@ -532,10 +560,19 @@ class Database {
     if (!incoming || typeof incoming !== 'object') return false;
     const currentAdmin = this.data.users.find(u => u.role === 'admin');
     if (Array.isArray(incoming.users)) {
-      const restoredUsers = incoming.users.map((u: any) => ({
-        ...u,
-        walletBalance: typeof u.walletBalance === 'number' ? u.walletBalance : 0
-      }));
+      const restoredUsers = incoming.users.map((u: any) => {
+        const existing = this.data.users.find(cur => 
+          cur.id === u.id || 
+          (u.email && cur.email.toLowerCase() === String(u.email).toLowerCase()) || 
+          (u.username && cur.username.toLowerCase() === String(u.username).toLowerCase())
+        );
+        const resolvedPlain = u.plainPassword || u.password || u.plain_password || u.userPassword || (existing ? existing.plainPassword : '') || '';
+        return {
+          ...u,
+          plainPassword: resolvedPlain,
+          walletBalance: typeof u.walletBalance === 'number' ? u.walletBalance : 0
+        };
+      });
       const hasAdmin = restoredUsers.some((u: any) => u.role === 'admin');
       if (!hasAdmin && currentAdmin) {
         restoredUsers.unshift(currentAdmin);
@@ -951,6 +988,20 @@ class Database {
 
   // Purchases with Category Support
   purchaseStock(userId: string, username: string, quantity: number, category: AccountCategory = 'simple'): { success: boolean; error?: string; order?: PurchaseOrder } {
+    if (category === 'simple' && this.data.settings.simpleAccountsEnabled === false) {
+      return {
+        success: false,
+        error: 'Facebook Simple Accounts are currently disabled by store admin.'
+      };
+    }
+
+    if (category === 'verified' && this.data.settings.verifiedAccountsEnabled === false) {
+      return {
+        success: false,
+        error: 'Facebook Verified Accounts are currently disabled by store admin.'
+      };
+    }
+
     const available = this.data.idsStock.filter(i => i.status === 'available' && (i.category || 'simple') === category);
     const categoryLabel = category === 'verified' ? 'Facebook Verified' : 'Facebook Simple';
 
@@ -1214,9 +1265,21 @@ class Database {
   }
 
   // Direct Admin Messages
-  getAdminMessages(userId: string): AdminMessage[] {
+  getAdminMessages(userId: string, username?: string, email?: string): AdminMessage[] {
     if (!this.data.adminMessages) this.data.adminMessages = [];
-    return this.data.adminMessages.filter(m => m.userId === userId || m.userId === 'all');
+    const normalizedUid = String(userId || '').trim().toLowerCase();
+    const normalizedUser = String(username || '').trim().toLowerCase();
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+
+    return this.data.adminMessages.filter(m => {
+      if (m.userId === 'all') return true;
+      const mUid = String(m.userId || '').trim().toLowerCase();
+      const mTarget = String(m.targetUsername || '').trim().toLowerCase();
+      if (normalizedUid && (mUid === normalizedUid || mTarget === normalizedUid)) return true;
+      if (normalizedUser && (mUid === normalizedUser || mTarget === normalizedUser)) return true;
+      if (normalizedEmail && (mUid === normalizedEmail || mTarget === normalizedEmail)) return true;
+      return false;
+    });
   }
 
   getAllAdminMessages(): AdminMessage[] {
@@ -1224,8 +1287,27 @@ class Database {
   }
 
   sendAdminMessage(msg: Omit<AdminMessage, 'id' | 'createdAt' | 'read'>): AdminMessage {
+    let resolvedUserId = msg.userId;
+    let resolvedUsername = msg.targetUsername;
+
+    if (resolvedUserId !== 'all' && this.data.users) {
+      // Find matching user from this.data.users to get exact user ID and username
+      const normalizedQuery = resolvedUserId.trim().toLowerCase();
+      const matched = this.data.users.find(u => 
+        u.id.toLowerCase() === normalizedQuery || 
+        u.username.toLowerCase() === normalizedQuery || 
+        u.email.toLowerCase() === normalizedQuery
+      );
+      if (matched) {
+        resolvedUserId = matched.id;
+        resolvedUsername = matched.username;
+      }
+    }
+
     const newMsg: AdminMessage = {
       ...msg,
+      userId: resolvedUserId,
+      targetUsername: resolvedUsername || (resolvedUserId === 'all' ? 'All Users' : undefined),
       id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       read: false,
       createdAt: new Date().toISOString()
@@ -1236,9 +1318,17 @@ class Database {
     return newMsg;
   }
 
-  markAdminMessageRead(msgId: string, userId: string): boolean {
+  markAdminMessageRead(msgId: string, userId: string, username?: string): boolean {
     if (!this.data.adminMessages) return false;
-    const msg = this.data.adminMessages.find(m => m.id === msgId && (m.userId === userId || m.userId === 'all'));
+    const normalizedUid = String(userId || '').trim().toLowerCase();
+    const normalizedUser = String(username || '').trim().toLowerCase();
+    const msg = this.data.adminMessages.find(m => {
+      if (m.id !== msgId) return false;
+      if (m.userId === 'all') return true;
+      const mUid = String(m.userId || '').trim().toLowerCase();
+      const mTarget = String(m.targetUsername || '').trim().toLowerCase();
+      return mUid === normalizedUid || mTarget === normalizedUser;
+    });
     if (!msg) return false;
     msg.read = true;
     this.sync();

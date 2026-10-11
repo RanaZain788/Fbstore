@@ -1,8 +1,12 @@
 {
-  "projectId": "fbstore-bf1e3",
-  "appId": "1:994980888815:web:e416f85886797a73a9db1a",
-  "apiKey": "AIzaSyB2hlLW9ieElLtbyksy52Nlw2ook1Heeno",
-  "authDomain": "fbstore-bf1e3.firebaseapp.com",
-  "storageBucket": "fbstore-bf1e3.firebasestorage.app",
-  "messagingSenderId": "994980888815"
+  "projectId": "spiritual-vent-jnm8c",
+  "appId": "1:541826294501:web:a69a804fc7f98a7a856a0c",
+  "apiKey": "AIzaSyCCuDQzKzyqYGBdaa3THoTd6gEpNBlxFHM",
+  "authDomain": "spiritual-vent-jnm8c.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-fbstore-ed3125cb-e8a3-463b-9366-f1d7a50fd14e",
+  "storageBucket": "spiritual-vent-jnm8c.firebasestorage.app",
+  "messagingSenderId": "541826294501",
+  "measurementId": "",
+  "oAuthClientId": "541826294501-mqcac2f279q2704bp4nupdl4lngk8bsb.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }
